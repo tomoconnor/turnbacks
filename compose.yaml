@@ -23,11 +23,17 @@
 #   docker compose up -d db            # just PostgreSQL (for `make dev`)
 #   docker compose up --build          # PostgreSQL + Turnbacks in development mode
 #
+# The app reads .env (if present) for settings such as logging, identity,
+# webhooks and Slack; the values below override the ones that must differ in
+# development. Ports: TURNBACKS_DB_PORT and TURNBACKS_APP_PORT.
+#
 # Administration needs a client certificate via Caddy, so it is not available
 # in this stack: use `make dev` (you are admin from your own machine) or
 # compose.prod.yaml.
 #
-# PostgreSQL is published on 127.0.0.1 only. For production use
+# PostgreSQL is published on 127.0.0.1 only, with fixed development
+# credentials (turnbacks/turnbacks) that `make dev` and the end-to-end tests
+# rely on; POSTGRES_* in .env are for compose.prod.yaml. For production use
 # compose.prod.yaml, which does not publish the database at all.
 name: turnbacks
 
@@ -50,14 +56,21 @@ services:
 
   app:
     build: .
+    image: ${TURNBACKS_IMAGE:-turnbacks:latest}
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
     environment:
       TURNBACKS_ENV: development
+      TURNBACKS_HTTP_ADDR: ":8080"
       TURNBACKS_DATABASE_URL: postgres://turnbacks:turnbacks@db:5432/turnbacks?sslmode=disable
       TURNBACKS_PUBLIC_URL: http://localhost:${TURNBACKS_APP_PORT:-8080}
-      TURNBACKS_LOG_FORMAT: text
+      TURNBACKS_LOG_FORMAT: ${TURNBACKS_LOG_FORMAT:-text}
+      # No admin CA is mounted in this stack.
+      TURNBACKS_ADMIN_CLIENT_CA: ""
     ports:
       - "127.0.0.1:${TURNBACKS_APP_PORT:-8080}:8080"
 
