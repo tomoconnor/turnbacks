@@ -21,7 +21,10 @@
 package auth
 
 import (
+	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"slices"
 	"testing"
 )
 
@@ -38,5 +41,28 @@ func TestReporterKey(t *testing.T) {
 		if got := ReporterKey(r); got != want {
 			t.Errorf("ReporterKey(%q) = %q, want %q", addr, got, want)
 		}
+	}
+}
+
+func TestHeaderIdentifierGroups(t *testing.T) {
+	req := func(groups ...string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Header.Set("X-Forwarded-Email", "ann@example.com")
+		for _, g := range groups {
+			r.Header.Add("X-Forwarded-Groups", g)
+		}
+		return r.WithContext(WithPeer(r.Context(), Peer{Addr: netip.MustParseAddr("10.0.0.1"), TrustedProxy: true}))
+	}
+	comma := HeaderIdentifier{UserHeader: "X-Forwarded-Email", GroupsHeader: "X-Forwarded-Groups"}
+	if got := comma.Identify(req("staff, ops", "admins")).Groups; !slices.Equal(got, []string{"staff", "ops"}) {
+		t.Errorf("comma: %q (a second header line must not add groups)", got)
+	}
+	pipe := HeaderIdentifier{UserHeader: "X-Forwarded-Email", GroupsHeader: "X-Forwarded-Groups", GroupsSeparator: "|"}
+	if got := pipe.Identify(req("x,admins|staff")).Groups; !slices.Equal(got, []string{"x,admins", "staff"}) {
+		t.Errorf("pipe: %q", got)
+	}
+	lines := HeaderIdentifier{UserHeader: "X-Forwarded-Email", GroupsHeader: "X-Forwarded-Groups", GroupsSeparator: "none"}
+	if got := lines.Identify(req("x,admins", "staff")).Groups; !slices.Equal(got, []string{"x,admins", "staff"}) {
+		t.Errorf("none: %q", got)
 	}
 }

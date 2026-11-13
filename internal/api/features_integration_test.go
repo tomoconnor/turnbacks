@@ -291,6 +291,27 @@ func TestOutboundWebhooks(t *testing.T) {
 		t.Errorf("loopback: %+v", ds.Items[0])
 	}
 
+	// Disabling a webhook stops deliveries that are already queued.
+	h.svc.SetWebhookClient(webhook.NewClient(5*time.Second, true))
+	rc.status = http.StatusBadGateway
+	expectStatus(t, admin.do("POST", "/api/v1/webhooks/"+hook.ID.String()+"/test", nil, nil), http.StatusAccepted)
+	_, _ = h.svc.DeliverDueWebhooks(ctx) // fails, retry scheduled
+	expectStatus(t, admin.do("PATCH", "/api/v1/webhooks/"+hook.ID.String(), map[string]any{
+		"name": "Audit sink", "url": srv.URL + "/hook", "format": "json", "events": []string{"turnback.recorded"}, "enabled": false,
+	}, nil), http.StatusOK)
+	if _, err := h.st.Pool.Exec(ctx, "UPDATE webhook_deliveries SET next_attempt_at = now() WHERE status = 'pending'"); err != nil {
+		t.Fatal(err)
+	}
+	before := rc.count()
+	_, _ = h.svc.DeliverDueWebhooks(ctx)
+	if rc.count() != before {
+		t.Error("disabled webhook still delivered")
+	}
+	ds = decodeBody[struct{ Items []api.WebhookDelivery }](t, admin.do("GET", "/api/v1/webhooks/"+hook.ID.String()+"/deliveries", nil, nil))
+	if ds.Items[0].Status != "failed" || ds.Items[0].LastError == nil || *ds.Items[0].LastError != "webhook disabled" {
+		t.Errorf("disabled: %+v", ds.Items[0])
+	}
+
 	expectStatus(t, admin.do("DELETE", "/api/v1/webhooks/"+hook.ID.String(), nil, nil), http.StatusNoContent)
 	expectStatus(t, admin.do("GET", "/api/v1/webhooks/"+hook.ID.String()+"/deliveries", nil, nil), http.StatusNotFound)
 }
@@ -403,6 +424,7 @@ func TestAdminAuditLog(t *testing.T) {
 	expectStatus(t, admin.do("PUT", "/api/v1/settings", putSettings, nil), http.StatusOK)
 	expectStatus(t, admin.do("GET", "/api/v1/turnbacks", nil, nil), http.StatusOK)
 	expectStatus(t, admin.do("GET", "/api/v1/analytics/summary", nil, nil), http.StatusOK) // not audited
+	expectStatus(t, admin.do("GET", "/api/v1/changes", nil, nil), http.StatusOK)           // shows marker creators
 	expectStatus(t, admin.do("PATCH", "/api/v1/teams/"+uuid.NewString(), map[string]any{"name": "x"}, nil), http.StatusNotFound)
 
 	expectStatus(t, alice.do("GET", "/api/v1/audit", nil, nil), http.StatusForbidden)
@@ -412,17 +434,20 @@ func TestAdminAuditLog(t *testing.T) {
 		Items []api.AuditEntry
 		Total int64
 	}](t, admin.do("GET", "/api/v1/audit", nil, nil))
-	// Newest first: the PATCH (404), the GET of reporter data, the PUT.
-	if l.Total != 3 || len(l.Items) != 3 {
+	// Newest first: the PATCH (404), the GETs of reporter data, the PUT.
+	if l.Total != 4 || len(l.Items) != 4 {
 		t.Fatalf("audit = %+v", l)
 	}
 	if l.Items[0].Action != "/api/v1/teams/{id}" || l.Items[0].Status != 404 || !strings.HasPrefix(l.Items[0].Target, "id=") {
 		t.Errorf("patch entry = %+v", l.Items[0])
 	}
-	if l.Items[1].Method != "GET" || l.Items[1].Action != "/api/v1/turnbacks" {
+	if l.Items[1].Method != "GET" || l.Items[1].Action != "/api/v1/changes" {
 		t.Errorf("read entry = %+v", l.Items[1])
 	}
-	put := l.Items[2]
+	if l.Items[2].Method != "GET" || l.Items[2].Action != "/api/v1/turnbacks" {
+		t.Errorf("read entry = %+v", l.Items[2])
+	}
+	put := l.Items[3]
 	if put.Admin != "admin-1" || put.Via != "certificate" || put.Method != "PUT" || put.Action != "/api/v1/settings" || put.Status != 200 ||
 		put.Client == nil || *put.Client != "ip:10.8.0.1" || put.RequestID == nil {
 		t.Errorf("put entry = %+v", put)
@@ -494,4 +519,11 @@ func TestTeamsHelpers(t *testing.T) {
 		api.VerifyTeamsSignature(key, "Bearer x", []byte("body")) {
 		t.Error("teams signature verification wrong")
 	}
+}
+
+func TestHugeOffsetIsClamped(t *testing.T) {
+	h := newHarness(t)
+	alice := h.person("10.8.0.12")
+	expectStatus(t, alice.do("GET", "/api/v1/turnbacks?offset=3000000000", nil, nil), http.StatusOK)
+	expectStatus(t, alice.do("GET", "/api/v1/problems?offset=9223372036854775807", nil, nil), http.StatusOK)
 }

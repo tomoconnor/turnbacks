@@ -321,23 +321,35 @@ func (s *Service) ListDeliveries(ctx context.Context, a domain.Actor, id uuid.UU
 
 // ---- Delivery worker --------------------------------------------------------
 
-// deliveryLease is how long a claimed delivery is reserved for one worker.
-const deliveryLease = 2 * time.Minute
+// deliveryLease is how long a claimed delivery is reserved for one worker,
+// and deliveryBatch how many are claimed at once. Deliveries in a batch are
+// sent one after another, each taking up to the client timeout, so a worker
+// stops sending from a batch once the remaining lease could not cover another
+// send; unsent deliveries are claimed again when their lease ends. This keeps
+// another replica from sending a delivery this worker is still sending.
+const (
+	deliveryLease = 2 * time.Minute
+	deliveryBatch = 5
+)
 
 // DeliverDueWebhooks sends every due delivery once and returns how many were
 // attempted. Safe to run concurrently on several replicas.
 func (s *Service) DeliverDueWebhooks(ctx context.Context) (int, error) {
 	total := 0
 	for {
-		due, err := s.store.ClaimDueDeliveries(ctx, sqlc.ClaimDueDeliveriesParams{LeaseSeconds: deliveryLease.Seconds(), Lim: 20})
+		claimed := time.Now()
+		due, err := s.store.ClaimDueDeliveries(ctx, sqlc.ClaimDueDeliveriesParams{LeaseSeconds: deliveryLease.Seconds(), Lim: deliveryBatch})
 		if err != nil {
 			return total, err
 		}
 		for _, d := range due {
+			if time.Since(claimed)+s.hooks.Timeout+5*time.Second > deliveryLease {
+				break
+			}
 			s.deliver(ctx, d)
+			total++
 		}
-		total += len(due)
-		if len(due) < 20 || ctx.Err() != nil {
+		if len(due) < deliveryBatch || ctx.Err() != nil {
 			return total, ctx.Err()
 		}
 	}
@@ -347,6 +359,16 @@ func (s *Service) deliver(ctx context.Context, d sqlc.WebhookDelivery) {
 	w, err := s.store.GetWebhook(ctx, d.WebhookID)
 	if err != nil {
 		s.log.ErrorContext(ctx, "webhook delivery: webhook not loaded", "delivery_id", d.ID, "error", err)
+		return
+	}
+	if !w.Enabled {
+		// Disabled after the event was queued: never send it.
+		msg := "webhook disabled"
+		if err := s.store.MarkDeliveryFailedAttempt(ctx, sqlc.MarkDeliveryFailedAttemptParams{
+			ID: d.ID, LastError: &msg, GiveUp: true, NextAttemptAt: s.now(),
+		}); err != nil {
+			s.log.ErrorContext(ctx, "webhook delivery: status not saved", "delivery_id", d.ID, "error", err)
+		}
 		return
 	}
 	res := webhook.Send(ctx, s.hooks, webhook.Delivery{

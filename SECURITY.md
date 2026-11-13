@@ -40,7 +40,8 @@ These are not, because they follow from the design or the deployment:
 - problems that need a misconfiguration the documentation warns against, such as exposing Turnbacks
   to the internet, a `TURNBACKS_TRUSTED_PROXIES` range that includes clients, or `ca.key` on the
   server;
-- denial of service through ordinary high request volumes (rate limiting belongs at the proxy);
+- denial of service through ordinary high request volumes (Turnbacks limits each person's writes;
+  anything beyond that belongs at the proxy);
 - missing security headers that have no demonstrable impact.
 
 If you are not sure, report it privately anyway.

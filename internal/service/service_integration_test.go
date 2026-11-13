@@ -487,6 +487,12 @@ func TestRetentionClearsNotesAndAddresses(t *testing.T) {
 	if _, err := f.svc.SubmitTurnback(f.ctx, f.alice, service.TurnbackInput{ID: uuid.New(), ProblemID: p.ID, DurationMinutes: 5, OccurredAt: &at, Source: domain.SourceWeb, Note: strp("old note")}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := f.svc.CreateMarker(f.ctx, f.alice, service.MarkerInput{Title: "Old change", Source: domain.SourceWeb}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Pool.Exec(f.ctx, "UPDATE change_markers SET created_at = now() - interval '40 days'"); err != nil {
+		t.Fatal(err)
+	}
 	days := 30
 	st, _ := f.svc.GetSettings(f.ctx)
 	if _, err := f.svc.UpdateSettings(f.ctx, f.admin, service.SettingsInput{OrgName: st.OrgName, Currency: st.Currency, DefaultHourlyRateMinor: st.DefaultHourlyRateMinor,
@@ -502,6 +508,13 @@ func TestRetentionClearsNotesAndAddresses(t *testing.T) {
 	}
 	if note != nil || reporter != nil {
 		t.Errorf("retention not applied: note=%v reporter=%v", note, reporter)
+	}
+	var creator *string
+	if err := f.st.Pool.QueryRow(f.ctx, "SELECT created_by FROM change_markers").Scan(&creator); err != nil {
+		t.Fatal(err)
+	}
+	if creator != nil {
+		t.Errorf("marker creator kept: %v", *creator)
 	}
 }
 

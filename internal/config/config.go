@@ -57,6 +57,9 @@ type Config struct {
 	TrustedProxies  []netip.Prefix
 	RequestTimeout  time.Duration
 	ShutdownTimeout time.Duration
+	// WriteRateLimit is how many state-changing API requests one person (or
+	// network address) may make per minute; 0 disables the limit.
+	WriteRateLimit int
 
 	Admin    AdminConfig
 	Identity IdentityConfig
@@ -73,6 +76,9 @@ type IdentityConfig struct {
 	Mode         string
 	UserHeader   string
 	GroupsHeader string
+	// GroupsSeparator splits the groups header ("," by default; "none" means
+	// one group per header line).
+	GroupsSeparator string
 	// AdminUsers and AdminGroups make single sign-on users administrators.
 	AdminUsers  []string
 	AdminGroups []string
@@ -157,6 +163,18 @@ func load(getenv func(string) string) (*Config, error) {
 		}
 		return d
 	}
+	integer := func(key string, def, lo, hi int) int {
+		v := get(key, "")
+		if v == "" {
+			return def
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < lo || n > hi {
+			errs = append(errs, fmt.Errorf("%s: must be a whole number from %d to %d, got %q", key, lo, hi, v))
+			return def
+		}
+		return n
+	}
 	list := func(key string) []string {
 		var out []string
 		for _, s := range strings.Split(get(key, ""), ",") {
@@ -175,6 +193,7 @@ func load(getenv func(string) string) (*Config, error) {
 		DBWait:          duration("TURNBACKS_DB_WAIT", 60*time.Second),
 		LogFormat:       get("TURNBACKS_LOG_FORMAT", "json"),
 		RequestTimeout:  duration("TURNBACKS_REQUEST_TIMEOUT", 30*time.Second),
+		WriteRateLimit:  integer("TURNBACKS_WRITE_RATE_LIMIT", 60, 0, 100000),
 		ShutdownTimeout: duration("TURNBACKS_SHUTDOWN_TIMEOUT", 20*time.Second),
 		Admin: AdminConfig{
 			ClientCAFile: get("TURNBACKS_ADMIN_CLIENT_CA", ""),
@@ -183,11 +202,12 @@ func load(getenv func(string) string) (*Config, error) {
 			DevLoopback:  boolean("TURNBACKS_DEV_ADMIN_LOOPBACK", false),
 		},
 		Identity: IdentityConfig{
-			Mode:         get("TURNBACKS_IDENTITY", "ip"),
-			UserHeader:   get("TURNBACKS_IDENTITY_USER_HEADER", "X-Forwarded-Email"),
-			GroupsHeader: get("TURNBACKS_IDENTITY_GROUPS_HEADER", "X-Forwarded-Groups"),
-			AdminUsers:   list("TURNBACKS_ADMIN_USERS"),
-			AdminGroups:  list("TURNBACKS_ADMIN_GROUPS"),
+			Mode:            get("TURNBACKS_IDENTITY", "ip"),
+			UserHeader:      get("TURNBACKS_IDENTITY_USER_HEADER", "X-Forwarded-Email"),
+			GroupsHeader:    get("TURNBACKS_IDENTITY_GROUPS_HEADER", "X-Forwarded-Groups"),
+			GroupsSeparator: get("TURNBACKS_IDENTITY_GROUPS_SEPARATOR", ","),
+			AdminUsers:      list("TURNBACKS_ADMIN_USERS"),
+			AdminGroups:     list("TURNBACKS_ADMIN_GROUPS"),
 		},
 		Webhooks: WebhookConfig{
 			AllowLoopback: boolean("TURNBACKS_WEBHOOK_ALLOW_LOOPBACK", false),

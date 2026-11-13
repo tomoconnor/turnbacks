@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useInvalidateStats } from "@/api/hooks";
+import { useSession } from "@/lib/session";
 import { outbox } from "./outbox";
 
 export function useOutboxItems() {
@@ -48,6 +49,7 @@ export function useOnline() {
 /** Background synchronisation of the outbox. Mount once. */
 export function useOutboxSync() {
   const invalidate = useInvalidateStats(); // stable (memoised on the query client)
+  const session = useSession();
 
   // Stable: the effect below must not re-run (and re-flush) on every render.
   const flush = useCallback(async () => {
@@ -69,6 +71,14 @@ export function useOutboxSync() {
       window.clearInterval(timer);
     };
   }, [flush]);
+
+  // Once the server says who is signed in, send what that person queued.
+  const known = !session.loading && !session.offline;
+  useEffect(() => {
+    if (!known) return;
+    outbox.setIdentity(session.user);
+    void flush();
+  }, [known, session.user, flush]);
 
   return flush;
 }

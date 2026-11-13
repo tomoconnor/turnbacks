@@ -94,6 +94,9 @@ func (s *Server) routes() http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.Admin.Middleware, csrfGuard(publicOrigin), s.auditLog)
+			if s.Config.WriteRateLimit > 0 {
+				r.Use(newWriteLimiter(s.Config.WriteRateLimit).middleware)
+			}
 
 			r.Get("/session", s.sessionInfo)
 

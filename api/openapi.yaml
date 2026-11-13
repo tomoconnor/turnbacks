@@ -38,6 +38,9 @@ info:
     except inbound webhooks (`/hooks/{id}`), which authenticate with their own credentials.
     Administrators' state-changing requests, and their reads of reporter data, are recorded
     in the audit log.
+    Each person's state-changing requests are rate-limited (`TURNBACKS_WRITE_RATE_LIMIT`,
+    60 a minute by default; administrators are exempt): beyond it the response is `429`
+    with code `rate_limited` and a `Retry-After` header.
 
     **Money** is always an integer number of minor currency units (`*_minor`, e.g. pence).
     The organisation's currency and its minor-unit exponent are in `GET /settings`.

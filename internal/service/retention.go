@@ -50,6 +50,15 @@ func (s *Service) RunMaintenance(ctx context.Context) error {
 		if n > 0 {
 			s.log.InfoContext(ctx, "retention: removed reporter addresses", "count", n, "older_than_days", *st.ReporterRetentionDays)
 		}
+		// Change markers record their creator the same way turnbacks record
+		// their reporter, so the same retention applies.
+		n, err = s.store.ApplyMarkerCreatorRetention(ctx, *st.ReporterRetentionDays)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			s.log.InfoContext(ctx, "retention: removed change marker creators", "count", n, "older_than_days", *st.ReporterRetentionDays)
+		}
 	}
 	for name, fn := range map[string]func(context.Context) (int64, error){
 		"slack_requests":     s.store.DeleteOldSlackRequests,

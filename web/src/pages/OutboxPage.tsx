@@ -88,9 +88,15 @@ export function OutboxPage() {
                       <div className="text-xs text-muted-foreground">Last error: {i.lastError}</div>
                     )}
                   </div>
-                  <Badge variant={i.status === "failed" ? "destructive" : "secondary"}>
-                    {statusLabel[i.status]}
-                  </Badge>
+                  {outbox.canSend(i) ? (
+                    <Badge variant={i.status === "failed" ? "destructive" : "secondary"}>
+                      {statusLabel[i.status]}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" title="Sent when this person is signed in on this device">
+                      Recorded by {i.owner}
+                    </Badge>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"

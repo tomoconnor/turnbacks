@@ -91,6 +91,12 @@ In Go, `turnbacks/internal/webhook.Verify(secret, timestamp, body, signature)` d
   then 1, 2, 4… minutes, at most 6 hours apart, for up to 10 attempts. Other `4xx` responses are not
   retried. Delivery is therefore **at least once**: deduplicate on `X-Turnbacks-Delivery`.
 - Requests time out after 10 seconds and redirects are not followed.
+- Disabling a webhook also stops deliveries already queued for it; they are marked failed.
+- Errors are logged and stored without the webhook URL's path or query (only the scheme and host),
+  because Slack and Teams URLs are themselves credentials.
+- In the `slack`, `markdown` and `teams` formats, user-entered text (problem titles, change markers)
+  is shown literally: Markdown is escaped, line breaks are removed and `@` is followed by a
+  zero-width space, so nobody can ping a channel or disguise a link through a title.
 - Admin → Webhooks shows each webhook's last delivery, and the history icon shows the last 50.
   Delivered and failed records are deleted after 30 days.
 
@@ -103,12 +109,13 @@ network, so the address actually connected to (after DNS resolution) is checked:
 | --- | --- |
 | Private and public addresses | Yes (chat servers are often internal) |
 | Link-local, including cloud metadata (`169.254.169.254`, `fe80::/10`) | Never |
+| Other cloud metadata services (`100.100.100.200`, `fd00:ec2::254`) | Never |
 | Unspecified and multicast | Never |
 | Loopback | Only with `TURNBACKS_WEBHOOK_ALLOW_LOOPBACK=true` (development) |
 
 No HTTP proxy is used, so the check cannot be bypassed through one. A refused address fails the
-delivery without retries. On Kubernetes with the chart's NetworkPolicy enabled, allow egress to the webhook
-destinations with `networkPolicy.webhookEgress` (otherwise deliveries are blocked).
+delivery without retries. On Kubernetes with the chart's `networkPolicy.restrictEgress` on, allow egress to the
+webhook destinations with `networkPolicy.webhookEgress` (otherwise deliveries are blocked).
 
 ## Inbound webhooks
 

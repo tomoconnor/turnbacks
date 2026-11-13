@@ -67,18 +67,19 @@ worth protecting are:
 | ✅ | Inbound webhooks: JSON hooks use random 256-bit bearer tokens stored as SHA-256 and compared in constant time; Mattermost tokens likewise; Teams requests are HMAC-verified. Unknown, disabled and unauthenticated hooks all return the same `401`; bodies are limited to 64 KiB (`TestInboundWebhooks`, `TestTeamsHelpers`) |
 | ⚠️ | Mattermost and Teams send no timestamp, so there is no replay window: a captured request could be replayed. Teams retries are idempotent per message ID; keep tokens secret and traffic on HTTPS |
 | ⚠️ | The Teams HMAC key and outbound signing secrets must be usable by the server, so they are stored in the database in clear; protect database backups accordingly |
-| ✅ | Outbound webhooks: the address actually dialled is checked after DNS resolution; link-local (cloud metadata), unspecified and multicast addresses are always refused, loopback unless `TURNBACKS_WEBHOOK_ALLOW_LOOPBACK`; no redirects, no HTTP proxy, 10-second timeout; JSON payloads are HMAC-signed (`TestAddressPolicy`, `TestOutboundWebhooks`) |
+| ✅ | Outbound webhooks: the address actually dialled is checked after DNS resolution; link-local and other cloud metadata addresses (`100.100.100.200`, `fd00:ec2::254`), unspecified and multicast addresses are always refused, loopback unless `TURNBACKS_WEBHOOK_ALLOW_LOOPBACK`; no redirects, no HTTP proxy, 10-second timeout; JSON payloads are HMAC-signed; webhook URLs never appear in logs or delivery errors (Slack and Teams URLs are credentials); user-entered text is escaped for each chat format, so titles cannot ping `@channel` or carry disguised links (`TestAddressPolicy`, `TestRenderEscapesUserText`, `TestSendRedactsURL`, `TestOutboundWebhooks`) |
 | ⚠️ | Private addresses are allowed on purpose (chat servers are usually internal), so an administrator can point a webhook at any internal HTTP service. Webhook configuration is admin-only and audited |
 
 ## Operations and supply chain
 
 | | Control |
 | --- | --- |
-| ✅ | Container: distroless, non-root, read-only filesystem, no capabilities; database never published in `compose.prod.yaml`; Helm chart applies the same settings plus an optional NetworkPolicy (egress only to DNS and PostgreSQL, plus `networkPolicy.webhookEgress` rules for outbound webhooks) |
+| ✅ | Container: distroless, non-root, read-only filesystem, no capabilities; database never published in `compose.prod.yaml`; Helm chart applies the same settings plus a NetworkPolicy, on by default, that admits only the ingress controller (the app trusts identity headers from `trustedProxies`), with optional egress restriction to DNS, PostgreSQL and `networkPolicy.webhookEgress`; the build context excludes `ca/`, `*.key` and `*.p12` |
+| ✅ | Each person's state-changing requests are rate-limited (`TURNBACKS_WRITE_RATE_LIMIT`, default 60 a minute), so one client cannot flood the analytics or the organisation's webhooks (`TestWriteLimiter`) |
 | ✅ | Request size, header and handler timeouts; panics recovered with generic `500`s |
 | ✅ | `golangci-lint` with `gosec` clean (reviewed suppressions are annotated) |
 | ✅ | Dependency scan at review time: `govulncheck` reported 0 reachable vulnerabilities (toolchain pinned to go1.27.4) and one unreachable advisory in indirect `golang.org/x/crypto`; `npm audit --omit=dev` reported 0 |
-| ⚠️ | TLS termination, a WAF and request rate limiting belong to the reverse proxy; keep running `govulncheck` and `npm audit` in CI |
+| ⚠️ | TLS termination, a WAF and rate limiting of reads belong to the reverse proxy; keep running `govulncheck` and `npm audit` in CI |
 
 ## Reporting vulnerabilities
 

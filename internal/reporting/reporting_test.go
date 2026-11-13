@@ -21,6 +21,7 @@
 package reporting
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -157,6 +158,22 @@ func TestAssumptionsValidate(t *testing.T) {
 	}
 	if err := (Assumptions{ExpectedReductionPct: 50, RecoverablePct: 100}).Validate(); err != nil {
 		t.Error(err)
+	}
+	if err := (Assumptions{ExpectedReductionPct: 50, RecoverablePct: 100, ImplementationCostMinor: 100_000_000_000_000_000}).Validate(); err == nil {
+		t.Error("huge implementation cost accepted")
+	}
+}
+
+// Large inputs must never wrap around into negative (or nonsense) figures.
+func TestProjectLargeValues(t *testing.T) {
+	o := Observation{Days: 1, Turnbacks: 1, Minutes: 1, CostMinor: math.MaxInt64 / 100}
+	a := Assumptions{ImplementationCostMinor: math.MaxInt64 / 2, ExpectedReductionPct: 100, RecoverablePct: 100}
+	p := Project(o, a)
+	if p.GrossAnnualBenefitMinor != math.MaxInt64 || p.AnnualisedCostMinor != math.MaxInt64 {
+		t.Errorf("gross=%d annualised=%d, want saturation", p.GrossAnnualBenefitMinor, p.AnnualisedCostMinor)
+	}
+	if !p.PaybackAchievable || p.PaybackMonthsTenths < 0 {
+		t.Errorf("payback = %d %v", p.PaybackMonthsTenths, p.PaybackAchievable)
 	}
 }
 

@@ -21,7 +21,8 @@ Authelia, Authentik, Cloudflare Access…) signs people in and passes the result
 | --- | --- | --- |
 | `TURNBACKS_IDENTITY` | `ip` | `header` turns this mode on |
 | `TURNBACKS_IDENTITY_USER_HEADER` | `X-Forwarded-Email` | The signed-in user (usually an email address) |
-| `TURNBACKS_IDENTITY_GROUPS_HEADER` | `X-Forwarded-Groups` | The user's groups, comma-separated (optional) |
+| `TURNBACKS_IDENTITY_GROUPS_HEADER` | `X-Forwarded-Groups` | The user's groups (optional) |
+| `TURNBACKS_IDENTITY_GROUPS_SEPARATOR` | `,` | How the groups header is split; `none` means one group per header line |
 | `TURNBACKS_ADMIN_GROUPS` | | Members of any of these groups are administrators (group names are compared exactly, including case; user names are lower-cased) |
 | `TURNBACKS_ADMIN_USERS` | | These users are administrators |
 
@@ -35,6 +36,12 @@ Rules:
   `tb` CLI or other clients on a route that bypasses single sign-on; they still count, by address.
 - `TURNBACKS_ADMIN_GROUPS` / `TURNBACKS_ADMIN_USERS` require `TURNBACKS_IDENTITY=header`; the server
   refuses to start otherwise.
+- A group whose name contains the separator cannot be told apart from two groups: if people can
+  create or name groups in your identity provider, someone could call one `x,turnbacks-admins` and
+  become an administrator. Set `TURNBACKS_IDENTITY_GROUPS_SEPARATOR` to a character group names
+  cannot contain (or `none` if your proxy sends one header line per group), or grant administration
+  with `TURNBACKS_ADMIN_USERS` instead. Only the first line of the groups header is read unless the
+  separator is `none`.
 - Admin client certificates ([admin-certificates.md](admin-certificates.md)) keep working alongside
   single sign-on administrators. A valid certificate wins; the audit log records which was used
   (`via` = `certificate` or `sso`).

@@ -43,8 +43,14 @@ type IdentityConfig struct {
 	Mode string
 	// UserHeader carries the signed-in user (e.g. X-Forwarded-Email).
 	UserHeader string
-	// GroupsHeader carries the user's groups, comma-separated (optional).
+	// GroupsHeader carries the user's groups (optional).
 	GroupsHeader string
+	// GroupsSeparator splits GroupsHeader: "," by default, or "none" for one
+	// group per header line. A group name containing the separator cannot be
+	// told apart from two groups, so with "," a user who can name a group
+	// "x,admins" would be in "admins"; choose a separator your identity
+	// provider forbids in group names, or grant administration by user.
+	GroupsSeparator string
 	// AdminUsers and AdminGroups grant administration to single sign-on users.
 	AdminUsers  []string
 	AdminGroups []string
@@ -74,7 +80,11 @@ func NewIdentifier(cfg IdentityConfig) (Identifier, error) {
 		if cfg.UserHeader == "" {
 			return nil, fmt.Errorf("identity mode %q needs a user header", cfg.Mode)
 		}
-		return HeaderIdentifier{UserHeader: cfg.UserHeader, GroupsHeader: cfg.GroupsHeader}, nil
+		sep := cfg.GroupsSeparator
+		if sep == "" {
+			sep = ","
+		}
+		return HeaderIdentifier{UserHeader: cfg.UserHeader, GroupsHeader: cfg.GroupsHeader, GroupsSeparator: sep}, nil
 	default:
 		return nil, fmt.Errorf("unknown identity mode %q (want ip or header)", cfg.Mode)
 	}
@@ -91,8 +101,9 @@ func (IPIdentifier) Identify(r *http.Request) Identity { return Identity{Reporte
 // trusted proxy; requests without it (for example the tb CLI on a route that
 // bypasses single sign-on) fall back to the client address.
 type HeaderIdentifier struct {
-	UserHeader   string
-	GroupsHeader string
+	UserHeader      string
+	GroupsHeader    string
+	GroupsSeparator string // "," when empty; "none" for one group per header line
 }
 
 // maxUserLen keeps "user:<name>" within the reporter column (200 characters).
@@ -104,7 +115,7 @@ func (h HeaderIdentifier) Identify(r *http.Request) Identity {
 		if u := NormaliseUser(r.Header.Get(h.UserHeader)); u != "" {
 			id := Identity{Reporter: "user:" + u, User: u}
 			if h.GroupsHeader != "" {
-				id.Groups = splitList(r.Header.Get(h.GroupsHeader))
+				id.Groups = h.groups(r)
 			}
 			return id
 		}
@@ -123,9 +134,28 @@ func NormaliseUser(v string) string {
 	return v
 }
 
-func splitList(v string) []string {
+// groups reads the groups header. With a separator, only the first header
+// line is read, so a second, separately added line cannot add groups.
+func (h HeaderIdentifier) groups(r *http.Request) []string {
+	if h.GroupsSeparator == "none" {
+		var out []string
+		for _, g := range r.Header.Values(h.GroupsHeader) {
+			if g = strings.TrimSpace(g); g != "" {
+				out = append(out, g)
+			}
+		}
+		return out
+	}
+	sep := h.GroupsSeparator
+	if sep == "" {
+		sep = ","
+	}
+	return splitList(r.Header.Get(h.GroupsHeader), sep)
+}
+
+func splitList(v, sep string) []string {
 	var out []string
-	for _, s := range strings.Split(v, ",") {
+	for _, s := range strings.Split(v, sep) {
 		if s = strings.TrimSpace(s); s != "" {
 			out = append(out, s)
 		}

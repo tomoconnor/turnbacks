@@ -54,6 +54,8 @@ export class Outbox {
   private flushing: Promise<void> | null = null;
   private loaded: Promise<void>;
   private sender: Sender;
+  /** The signed-in single sign-on user ("" if none); undefined until known. */
+  private identity: string | undefined;
 
   constructor(sender: Sender = defaultSender) {
     this.sender = sender;
@@ -71,6 +73,23 @@ export class Outbox {
 
   ready(): Promise<void> {
     return this.loaded;
+  }
+
+  /** Records who is signed in now (the session's single sign-on user, or ""). */
+  setIdentity(user: string) {
+    if (this.identity === user) return;
+    this.identity = user;
+    this.items = [...this.items]; // new snapshot: what can be sent has changed
+    this.emit();
+  }
+
+  /**
+   * Whether an item may be sent now: items recorded by a signed-in user are
+   * held while anyone else (or nobody yet known) is signed in, so that one
+   * person's reports are never recorded as another's.
+   */
+  canSend(item: OutboxItem): boolean {
+    return !item.owner || item.owner === this.identity;
   }
 
   private emit() {
@@ -109,6 +128,7 @@ export class Outbox {
       attempts: 0,
       status: "pending",
       queuedOffline: offline,
+      owner: this.identity || undefined,
     };
     await this.put(item);
     if (offline) return { kind: "queued", item };
@@ -158,7 +178,7 @@ export class Outbox {
     this.flushing = (async () => {
       await this.loaded;
       for (const item of [...this.items]) {
-        if (item.status === "failed") continue;
+        if (item.status === "failed" || !this.canSend(item)) continue;
         const out = await this.send(item, false);
         if (out.kind === "queued") break;
       }
@@ -172,7 +192,7 @@ export class Outbox {
   async retry(id: string): Promise<SendOutcome | undefined> {
     await this.loaded;
     const item = this.items.find((i) => i.id === id);
-    if (!item) return undefined;
+    if (!item || !this.canSend(item)) return undefined;
     return this.send({ ...item, status: "pending" }, false);
   }
 

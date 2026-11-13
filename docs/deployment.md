@@ -100,8 +100,9 @@ reporter (admin-only; see [privacy.md](privacy.md)); it is not written to access
 | `TURNBACKS_DATABASE_URL` | Use a dedicated database user; TLS to managed databases |
 | `TURNBACKS_ADMIN_CLIENT_CA` | Admin CA certificate (PEM); empty disables administration. Optional `TURNBACKS_ADMIN_NAMES` allow-list. See [admin-certificates.md](admin-certificates.md) |
 | `TURNBACKS_TRUSTED_PROXIES` | Your reverse proxy / ingress addresses, **not** the VPN client range (not needed on a Unix socket). Reports are attributed to the resulting client address; verify in Admin → Reports |
-| `TURNBACKS_IDENTITY` | `ip` (default) or `header` with `TURNBACKS_IDENTITY_USER_HEADER`, `TURNBACKS_IDENTITY_GROUPS_HEADER`, and optionally `TURNBACKS_ADMIN_GROUPS` / `TURNBACKS_ADMIN_USERS` for single sign-on administrators. See [identity.md](identity.md) |
+| `TURNBACKS_IDENTITY` | `ip` (default) or `header` with `TURNBACKS_IDENTITY_USER_HEADER`, `TURNBACKS_IDENTITY_GROUPS_HEADER` (split by `TURNBACKS_IDENTITY_GROUPS_SEPARATOR`), and optionally `TURNBACKS_ADMIN_GROUPS` / `TURNBACKS_ADMIN_USERS` for single sign-on administrators. See [identity.md](identity.md) |
 | Webhooks | Outbound webhooks need egress from the app to their destinations, and `TURNBACKS_PUBLIC_URL` for links in messages. `TURNBACKS_WEBHOOK_ALLOW_LOOPBACK` (default `false`) is for development. Inbound webhooks need `/api/v1/hooks/` reachable from Mattermost or Teams. See [webhooks.md](webhooks.md) |
+| `TURNBACKS_WRITE_RATE_LIMIT` | State-changing requests per person per minute (default `60`, per replica; `429` with `Retry-After` beyond it). Administrators, Slack and inbound webhooks are exempt; `0` disables it. Rate-limit reads at your proxy if you need to |
 | Secrets | Prefer `*_FILE` variables with Docker/Kubernetes secrets |
 | Settings | In Admin → Settings, set organisation name, currency, hourly rate, timezone and retention; in Teams, set headcounts |
 

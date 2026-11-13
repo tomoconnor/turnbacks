@@ -117,21 +117,26 @@ func Render(format string, stored []byte) ([]byte, error) {
 	if err := json.Unmarshal(stored, &env); err != nil {
 		return nil, err
 	}
+	// The summary is plain text built from user-entered titles: flatten it to
+	// one line and escape it for each format so that nobody can inject
+	// mentions (@channel) or disguised links into a channel.
+	summary := oneLine(env.Summary)
 	switch format {
 	case FormatSlack:
-		text := slackEscape(env.Summary)
+		text := slackEscape(summary)
 		if env.URL != "" {
 			text += " <" + env.URL + "|Open in Turnbacks>"
 		}
 		return json.Marshal(map[string]string{"text": text})
 	case FormatMarkdown:
-		text := env.Summary
+		text := markdownEscape(summary)
 		if env.URL != "" {
 			text += " [Open in Turnbacks](" + env.URL + ")"
 		}
 		return json.Marshal(map[string]string{"text": text})
 	case FormatTeams:
-		body := []map[string]any{{"type": "TextBlock", "text": env.Summary, "wrap": true}}
+		// A RichTextBlock's TextRuns are never parsed as Markdown.
+		body := []map[string]any{{"type": "RichTextBlock", "inlines": []map[string]any{{"type": "TextRun", "text": summary}}}}
 		card := map[string]any{
 			"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
 			"type":    "AdaptiveCard", "version": "1.4", "body": body,
@@ -150,8 +155,33 @@ func Render(format string, stored []byte) ([]byte, error) {
 	}
 }
 
+// zwsp separates "@" from a following name so that chat servers do not treat
+// it as a mention.
+const zwsp = "\u200b"
+
 func slackEscape(s string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "@", "@"+zwsp).Replace(s)
+}
+
+var markdownEscaper = func() *strings.Replacer {
+	var pairs []string
+	for _, c := range "\\`*_~[]()<>#|!" {
+		pairs = append(pairs, string(c), "\\"+string(c))
+	}
+	return strings.NewReplacer(append(pairs, "@", "@"+zwsp)...)
+}()
+
+// markdownEscape makes s render literally in Markdown chat messages.
+func markdownEscape(s string) string { return markdownEscaper.Replace(s) }
+
+// oneLine replaces control characters (including newlines) with spaces.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == 0x2028 || r == 0x2029 {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // ValidateURL checks a webhook URL as entered by an administrator.
@@ -170,6 +200,13 @@ func ValidateURL(raw string) error {
 // that webhooks may not reach.
 var ErrForbiddenAddress = errors.New("address not allowed for webhooks")
 
+// metadataAddrs are cloud metadata services that are not link-local
+// (Alibaba Cloud, and AWS's IPv6 endpoint).
+var metadataAddrs = map[netip.Addr]bool{
+	netip.MustParseAddr("100.100.100.200"): true,
+	netip.MustParseAddr("fd00:ec2::254"):   true,
+}
+
 // allowed reports whether a webhook may connect to ip. Private addresses are
 // allowed (chat servers are often internal); link-local addresses (cloud
 // metadata services) and unspecified/multicast addresses never are, and
@@ -177,6 +214,8 @@ var ErrForbiddenAddress = errors.New("address not allowed for webhooks")
 func allowed(ip netip.Addr, allowLoopback bool) bool {
 	ip = ip.Unmap()
 	switch {
+	case metadataAddrs[ip]:
+		return false
 	case ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast(), ip.IsUnspecified(), ip.IsMulticast():
 		return false
 	case ip.IsLoopback():
@@ -240,7 +279,7 @@ func Send(ctx context.Context, c *http.Client, d Delivery, now time.Time) Result
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.URL, strings.NewReader(string(body)))
 	if err != nil {
-		return Result{Err: err}
+		return Result{Err: errors.New("invalid webhook URL")}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Turnbacks-Webhook/1")
@@ -253,7 +292,7 @@ func Send(ctx context.Context, c *http.Client, d Delivery, now time.Time) Result
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return Result{Err: err, Retry: !errors.Is(err, ErrForbiddenAddress)}
+		return Result{Err: redact(err), Retry: !errors.Is(err, ErrForbiddenAddress)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -261,6 +300,24 @@ func Send(ctx context.Context, c *http.Client, d Delivery, now time.Time) Result
 	}
 	retry := resp.StatusCode >= 500 || resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests
 	return Result{StatusCode: resp.StatusCode, Err: fmt.Errorf("HTTP %d", resp.StatusCode), Retry: retry}
+}
+
+// redact removes the request URL from a transport error. Many webhook URLs
+// (Slack, Teams) are themselves credentials, and errors are logged and stored.
+func redact(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("POST %s: %w", redactedHost(ue.URL), ue.Err)
+	}
+	return err
+}
+
+func redactedHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "webhook"
+	}
+	return u.Scheme + "://" + u.Host + "/…"
 }
 
 // Backoff returns the delay before retry number attempt (1-based).

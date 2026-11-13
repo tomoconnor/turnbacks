@@ -49,6 +49,8 @@ config:
   logLevel: info
   logFormat: json
   requestTimeout: 30s
+  # State-changing requests per person per minute (per replica); 0 disables.
+  writeRateLimit: 60
   shutdownTimeout: 20s
   # Migrations run at start-up under a database lock (safe with several replicas).
   migrateOnStart: true
@@ -56,8 +58,9 @@ config:
   # How long a starting pod waits for PostgreSQL (e.g. while CloudNativePG
   # bootstraps). Keep below startupProbe's budget (failureThreshold × period).
   dbWait: 120s
-  # Proxies whose X-Forwarded-For is trusted: your ingress controller pods
-  # (the cluster pod network). Reports are attributed to the client address
+  # Proxies whose X-Forwarded-For (and identity and client-certificate
+  # headers) are trusted: your ingress controller pods (the cluster pod
+  # network). Keep networkPolicy.enabled so other pods cannot reach the app. Reports are attributed to the client address
   # this yields; if it is wrong, every report appears to come from the ingress.
   # Do not include your VPN client range.
   trustedProxies: "10.42.0.0/16"
@@ -90,6 +93,9 @@ identity:
   mode: ip
   userHeader: X-Forwarded-Email
   groupsHeader: X-Forwarded-Groups
+  # How groupsHeader is split: ",", another separator, or "none" (one group
+  # per header line). Pick one your identity provider forbids in group names.
+  groupsSeparator: ","
   # Single sign-on administrators (header mode only), alongside certificates.
   adminUsers: []
   adminGroups: []
@@ -209,7 +215,13 @@ podDisruptionBudget:
   minAvailable: 1
 
 networkPolicy:
-  enabled: false
+  # On by default: the app trusts identity and client-certificate headers from
+  # config.trustedProxies, so only the ingress controller may reach it. Without
+  # this, any pod in the trusted range could claim to be an administrator.
+  enabled: true
+  # Also restrict egress to DNS, PostgreSQL and webhookEgress. Off by default
+  # because outbound webhooks are blocked unless webhookEgress lists them.
+  restrictEgress: false
   # Who may reach the app (typically the ingress controller). Apart from DNS
   # and PostgreSQL, the app only calls outbound webhook URLs.
   ingressFrom:
@@ -217,7 +229,7 @@ networkPolicy:
         matchLabels:
           kubernetes.io/metadata.name: ingress-nginx
   # Extra egress rules for outbound webhooks (chat servers, your services).
-  # With the policy enabled and this empty, webhook deliveries are blocked.
+  # With restrictEgress on and this empty, webhook deliveries are blocked.
   #   - to: [{ ipBlock: { cidr: 10.20.0.0/16 } }]
   #     ports: [{ port: 443, protocol: TCP }]
   webhookEgress: []

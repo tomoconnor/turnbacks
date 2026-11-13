@@ -37,9 +37,13 @@ import (
 )
 
 // auditedReads are GET routes recorded in the audit log because they show
-// administrators who reported what.
+// administrators who reported what (turnback reporters and change marker
+// creators).
 var auditedReads = map[string]bool{
 	"/api/v1/turnbacks":                true,
+	"/api/v1/changes":                  true,
+	"/api/v1/changes/{id}/comparison":  true,
+	"/api/v1/analytics/changes":        true,
 	"/api/v1/exports/{dataset}":        true,
 	"/api/v1/analytics/export":         true,
 	"/api/v1/audit":                    true,

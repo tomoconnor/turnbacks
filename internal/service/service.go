@@ -28,6 +28,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -93,6 +94,9 @@ func NormalisePage(limit, offset int, def, max int) Page {
 	}
 	if offset < 0 {
 		offset = 0
+	}
+	if offset > math.MaxInt32 {
+		offset = math.MaxInt32
 	}
 	return Page{Limit: int32(limit), Offset: int32(offset)}
 }

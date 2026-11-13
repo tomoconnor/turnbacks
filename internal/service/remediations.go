@@ -47,8 +47,8 @@ func (in *RemediationInput) validate() error {
 	var v domain.Validator
 	v.Check(in.ImplementedOn.Year >= 2000 && in.ImplementedOn.Year <= 2100, "implemented_on", "must be a valid date")
 	v.Check(len(in.Description) >= 1 && len(in.Description) <= 4000, "description", "must be between 1 and 4000 characters")
-	v.Check(in.ImplementationCostMinor >= 0, "implementation_cost_minor", "must not be negative")
-	v.Check(in.AnnualCostMinor >= 0, "annual_cost_minor", "must not be negative")
+	v.Check(in.ImplementationCostMinor >= 0 && in.ImplementationCostMinor <= domain.MaxMoneyMinor, "implementation_cost_minor", "must be between 0 and 1000000000000")
+	v.Check(in.AnnualCostMinor >= 0 && in.AnnualCostMinor <= domain.MaxMoneyMinor, "annual_cost_minor", "must be between 0 and 1000000000000")
 	v.Check(in.ExpectedReductionPct >= 0 && in.ExpectedReductionPct <= 100, "expected_reduction_pct", "must be between 0 and 100")
 	return v.Err()
 }

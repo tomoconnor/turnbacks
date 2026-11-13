@@ -65,6 +65,7 @@ ingress:
 
 networkPolicy:
   enabled: true
+  restrictEgress: true
 
 autoscaling:
   enabled: true

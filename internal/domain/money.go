@@ -21,6 +21,7 @@
 package domain
 
 import (
+	"math"
 	"math/big"
 )
 
@@ -29,7 +30,12 @@ import (
 // is involved; results are rounded half away from zero, matching PostgreSQL's
 // round(numeric).
 
-// RoundRat rounds r to the nearest integer, halves away from zero.
+// MaxMoneyMinor bounds money amounts entered by users (10 billion major
+// units), keeping every derived figure well inside int64.
+const MaxMoneyMinor int64 = 1_000_000_000_000
+
+// RoundRat rounds r to the nearest integer, halves away from zero. Results
+// outside the int64 range saturate rather than wrap.
 func RoundRat(r *big.Rat) int64 {
 	num := new(big.Int).Set(r.Num())
 	den := r.Denom()
@@ -45,6 +51,12 @@ func RoundRat(r *big.Rat) int64 {
 	q := new(big.Int).Quo(n2, d2)
 	if neg {
 		q.Neg(q)
+	}
+	if !q.IsInt64() {
+		if neg {
+			return math.MinInt64
+		}
+		return math.MaxInt64
 	}
 	return q.Int64()
 }

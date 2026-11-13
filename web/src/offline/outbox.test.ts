@@ -105,6 +105,43 @@ describe("Outbox", () => {
     expect(sender).not.toHaveBeenCalled();
   });
 
+  it("only sends a signed-in user's queued reports while that user is signed in", async () => {
+    const sender = vi
+      .fn<Sender>()
+      .mockRejectedValueOnce(new NetworkError())
+      .mockImplementation(async (p) => ok(p));
+    const o = new Outbox(sender);
+    o.setIdentity("alice@example.com");
+    await o.submit(payload(), "VPN");
+    expect(o.snapshot()[0].owner).toBe("alice@example.com");
+
+    // Someone else signs in on the same device: Alice's report is held.
+    o.setIdentity("bob@example.com");
+    expect(o.canSend(o.snapshot()[0])).toBe(false);
+    await o.flush();
+    expect(await o.retry(o.snapshot()[0].id)).toBeUndefined();
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(o.snapshot()).toHaveLength(1);
+
+    // Alice signs in again: it is sent.
+    o.setIdentity("alice@example.com");
+    await o.flush();
+    expect(sender).toHaveBeenCalledTimes(2);
+    expect(o.snapshot()).toHaveLength(0);
+  });
+
+  it("holds a user's queued reports until the session is known", async () => {
+    const o1 = new Outbox(vi.fn<Sender>().mockRejectedValue(new NetworkError()));
+    o1.setIdentity("alice@example.com");
+    await o1.submit(payload(), "VPN");
+
+    const sender = vi.fn<Sender>(async (p) => ok(p));
+    const o2 = new Outbox(sender);
+    await o2.ready();
+    await o2.flush();
+    expect(sender).not.toHaveBeenCalled();
+  });
+
   it("survives a reload (persisted in IndexedDB)", async () => {
     const o1 = new Outbox(vi.fn<Sender>().mockRejectedValue(new NetworkError()));
     await o1.submit(payload(), "VPN");

@@ -48,8 +48,8 @@ type Assumptions struct {
 // Validate checks assumption ranges.
 func (a Assumptions) Validate() error {
 	var v domain.Validator
-	v.Check(a.ImplementationCostMinor >= 0, "implementation_cost_minor", "must not be negative")
-	v.Check(a.AnnualCostMinor >= 0, "annual_cost_minor", "must not be negative")
+	v.Check(a.ImplementationCostMinor >= 0 && a.ImplementationCostMinor <= domain.MaxMoneyMinor, "implementation_cost_minor", "must be between 0 and 1000000000000")
+	v.Check(a.AnnualCostMinor >= 0 && a.AnnualCostMinor <= domain.MaxMoneyMinor, "annual_cost_minor", "must be between 0 and 1000000000000")
 	v.Check(a.ExpectedReductionPct >= 0 && a.ExpectedReductionPct <= 100, "expected_reduction_pct", "must be between 0 and 100")
 	v.Check(a.RecoverablePct >= 0 && a.RecoverablePct <= 100, "recoverable_pct", "must be between 0 and 100")
 	return v.Err()
@@ -89,7 +89,7 @@ func Project(o Observation, a Assumptions) Projection {
 	p.MonthlyCostMinor = domain.ScaleMinor(o.CostMinor, 365, days*12)
 
 	// Gross benefit uses the exact (unrounded) annualised cost.
-	gross := new(big.Rat).SetFrac64(o.CostMinor*365, days)
+	gross := new(big.Rat).Mul(big.NewRat(o.CostMinor, days), big.NewRat(365, 1))
 	gross.Mul(gross, big.NewRat(a.ExpectedReductionPct*a.RecoverablePct, 10000))
 	p.GrossAnnualBenefitMinor = domain.RoundRat(gross)
 
@@ -103,7 +103,7 @@ func Project(o Observation, a Assumptions) Projection {
 
 	if net.Sign() > 0 {
 		// months = implementation / (net / 12), in tenths.
-		months := new(big.Rat).SetInt64(a.ImplementationCostMinor * 12 * 10)
+		months := new(big.Rat).Mul(new(big.Rat).SetInt64(a.ImplementationCostMinor), big.NewRat(12*10, 1))
 		months.Quo(months, net)
 		p.PaybackMonthsTenths = domain.RoundRat(months)
 		p.PaybackAchievable = true

@@ -9,3 +9,8 @@ web/playwright-report
 .env.*
 !.env.example
 *.log
+# Admin CA material (`turnbacks ca init --dir ca`): never send private keys
+# or certificate bundles to the build context.
+ca/
+**/*.key
+**/*.p12

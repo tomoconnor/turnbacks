@@ -12,6 +12,19 @@ import (
 	"github.com/google/uuid"
 )
 
+const applyMarkerCreatorRetention = `-- name: ApplyMarkerCreatorRetention :execrows
+UPDATE change_markers SET created_by = NULL
+WHERE created_by IS NOT NULL AND created_at < now() - make_interval(days => $1::int)
+`
+
+func (q *Queries) ApplyMarkerCreatorRetention(ctx context.Context, days int32) (int64, error) {
+	result, err := q.db.Exec(ctx, applyMarkerCreatorRetention, days)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const applyNoteRetention = `-- name: ApplyNoteRetention :execrows
 UPDATE turnbacks SET note = NULL
 WHERE note IS NOT NULL AND occurred_at < now() - make_interval(days => $1::int)

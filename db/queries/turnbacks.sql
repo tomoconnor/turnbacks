@@ -66,6 +66,10 @@ WHERE note IS NOT NULL AND occurred_at < now() - make_interval(days => @days::in
 UPDATE turnbacks SET reporter = NULL
 WHERE reporter IS NOT NULL AND occurred_at < now() - make_interval(days => @days::int);
 
+-- name: ApplyMarkerCreatorRetention :execrows
+UPDATE change_markers SET created_by = NULL
+WHERE created_by IS NOT NULL AND created_at < now() - make_interval(days => @days::int);
+
 -- name: FirstOccurrenceForProblem :one
 SELECT min(occurred_at) AS first_occurred_at FROM turnbacks WHERE problem_id = @problem_id;
 

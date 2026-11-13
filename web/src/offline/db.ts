@@ -37,6 +37,12 @@ export interface OutboxItem {
   status: OutboxStatus;
   lastError?: string;
   queuedOffline: boolean;
+  /**
+   * The single sign-on user who recorded it, when known. The server takes the
+   * reporter from whoever sends the request, so on a shared device the item is
+   * only sent while the same user is signed in.
+   */
+  owner?: string;
 }
 
 interface TurnbacksDB extends DBSchema {

@@ -22,7 +22,7 @@ deploy/
 | `ScheduledBackup` | Optional (`database.cloudnativepg.scheduledBackup`) |
 | Service, Ingress | Ingress optional; host defaults to the `publicURL` host |
 | HPA, PodDisruptionBudget | HPA optional; PDB on by default (`minAvailable: 1`) |
-| NetworkPolicy | Optional. Ingress only from the ingress controller (configurable); egress only to DNS, the database pods and any `networkPolicy.webhookEgress` rules (needed for outbound webhooks) |
+| NetworkPolicy | On by default: ingress only from the ingress controller (`networkPolicy.ingressFrom`). The app believes identity and client-certificate headers from `config.trustedProxies`, so other pods must not reach it directly; if you turn the policy off, make `trustedProxies` cover only the ingress pods. With `networkPolicy.restrictEgress`, egress only to DNS, the database pods and any `networkPolicy.webhookEgress` rules (needed for outbound webhooks) |
 | Identity | `identity.mode=ip` (default) or `header` for single sign-on through your ingress's auth annotations (`auth-url`, `auth-response-headers`); see [identity.md](identity.md) |
 | ConfigMap | All non-secret settings; a checksum annotation rolls pods when it changes |
 | `helm test` | Runs `turnbacks healthcheck` against the Service |
@@ -108,7 +108,7 @@ The chart was installed into a throwaway k3d cluster (Kubernetes 1.31) with Clou
 - the audit view showed each report's reporter address.
 
 That run predates admin client certificates, single sign-on identity and webhooks. Their chart
-settings (ingress-nginx client-certificate and auth annotations, `networkPolicy.webhookEgress`) render
+settings (ingress-nginx client-certificate and auth annotations, `networkPolicy.restrictEgress`, `networkPolicy.webhookEgress`) render
 and lint, but have not yet been exercised on a live cluster.
 
 An earlier revision was also checked for a zero-downtime rolling restart, survival of the database
