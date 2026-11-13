@@ -21,7 +21,9 @@
 
 
 # ---- 1. Frontend: build the React SPA into static assets -------------------
-FROM node:24-alpine AS web
+# The build stages run on the build machine's platform and cross-compile, so a
+# multi-platform build (linux/amd64 + linux/arm64) needs no emulation.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json web/.npmrc ./
 RUN npm ci --no-audit --no-fund
@@ -30,14 +32,15 @@ COPY web/ ./
 RUN npm run build
 
 # ---- 2. Backend: compile a static Go binary with the SPA embedded ----------
-FROM golang:1.27-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/turnbacks ./cmd/turnbacks
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/turnbacks ./cmd/turnbacks
 # Directory for the optional Unix socket shared with a reverse proxy.
 RUN mkdir -p /out/run/turnbacks
 

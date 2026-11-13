@@ -37,8 +37,10 @@ first install.
    `helm install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace`. To use an existing database
    instead, set `database.cloudnativepg.enabled=false` and `database.external.existingSecret` to a Secret
    whose `uri` key holds the connection URL.
-2. **Image**: push the image to a registry and set `image.repository`. The CI workflow publishes
-   `ghcr.io/<owner>/turnbacks:<sha>` and `:main` on every push to `main`.
+2. **Image**: set `image.repository`. CI publishes multi-platform (amd64, arm64) images to
+   `ghcr.io/tomoconnor/turnbacks` after the tests pass: `:main` and `:sha-<short sha>` on every push
+   to `main`, and `:1.2.3`, `:1.2`, `:1` and `:latest` for a `v1.2.3` tag, each with an SBOM and a
+   signed build provenance attestation (`gh attestation verify oci://ghcr.io/tomoconnor/turnbacks:<tag> --owner tomoconnor`).
 3. **Admin CA**: create a Secret holding the admin CA certificate (`ca.crt` only, never `ca.key`):
    `kubectl -n turnbacks create secret generic turnbacks-admin-ca --from-file=ca.crt=ca/ca.crt`
    ([admin-certificates.md](admin-certificates.md)). If Slack is used, also a Secret with the signing
