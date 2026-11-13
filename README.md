@@ -73,6 +73,7 @@ Requirements: Go 1.27+, Node.js 22.14+ (or 24), Docker (for PostgreSQL and integ
 
 ```sh
 make setup        # npm ci + Playwright browser
+make build        # frontend + bin/turnbacks and bin/tb (the Go server embeds web/dist)
 make dev          # PostgreSQL in Docker + Go API + Vite (hot reload), each on a free port
 make seed         # demo data (marked is_demo; remove with make seed-purge)
 ```

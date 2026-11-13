@@ -15,6 +15,7 @@ change SQL queries.
 
 ```sh
 make setup   # frontend dependencies and Playwright's browser
+make build   # build the frontend (embedded in the Go server) and the binaries
 make dev     # PostgreSQL, API and Vite on free ports; you are admin from your own machine
 make seed    # optional: six months of demonstration data
 ```
