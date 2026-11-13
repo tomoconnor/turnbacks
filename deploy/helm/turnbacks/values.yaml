@@ -1,0 +1,228 @@
+# Copyright (c) 2026 Tom O'Connor <tom@twinhelix.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Default values for the Turnbacks chart.
+#
+# Turnbacks has no user accounts: anyone who can reach it can record and read
+# reports, so expose it only on your internal network / VPN. Each report's
+# client address is recorded (one VPN address = one person) and shown to
+# administrators only, so config.trustedProxies MUST cover your ingress
+# controller. Administration requires a TLS client certificate from the
+# Turnbacks admin CA, checked by ingress-nginx and verified again by the app
+# (admin.clientCA). Secrets are never written in values.
+
+image:
+  repository: ghcr.io/YOUR-ORG/turnbacks
+  # Defaults to the chart appVersion. Prefer an immutable tag or a digest.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+# External URL users reach, e.g. https://turnbacks.example.com (same-origin
+# checks; also the default ingress host). Optional.
+publicURL: ""
+
+config:
+  logLevel: info
+  logFormat: json
+  requestTimeout: 30s
+  shutdownTimeout: 20s
+  # Migrations run at start-up under a database lock (safe with several replicas).
+  migrateOnStart: true
+  dbMaxConns: 10
+  # How long a starting pod waits for PostgreSQL (e.g. while CloudNativePG
+  # bootstraps). Keep below startupProbe's budget (failureThreshold × period).
+  dbWait: 120s
+  # Proxies whose X-Forwarded-For is trusted: your ingress controller pods
+  # (the cluster pod network). Reports are attributed to the client address
+  # this yields; if it is wrong, every report appears to come from the ingress.
+  # Do not include your VPN client range.
+  trustedProxies: "10.42.0.0/16"
+
+admin:
+  clientCA:
+    # Secret holding the admin CA certificate (`turnbacks ca init` → ca.crt)
+    # under key ca.crt. Only the certificate: never put ca.key in the cluster.
+    #   kubectl -n turnbacks create secret generic turnbacks-admin-ca --from-file=ca.crt=ca/ca.crt
+    # Without it, administration is disabled.
+    existingSecret: ""
+  # Optional allow-list of certificate names; removing a name revokes that admin.
+  names: []
+  # Header in which the ingress forwards the client certificate.
+  # ingress-nginx: ssl-client-cert (URL-encoded PEM).
+  certHeader: ssl-client-cert
+  # Add ingress-nginx annotations that ask for (but do not require) a client
+  # certificate from the admin CA and forward it to Turnbacks. For another
+  # ingress controller, set this to false and configure the equivalent: the
+  # controller MUST verify the certificate and always overwrite certHeader.
+  ingressNginx: true
+
+# Who people are (docs/identity.md).
+identity:
+  # ip: people are network addresses (one VPN address = one person).
+  # header: people are single sign-on users named by a header set by an
+  #   authenticating proxy in front of Turnbacks (oauth2-proxy, Pomerium, …).
+  #   With ingress-nginx, add the auth-url / auth-response-headers annotations
+  #   under ingress.annotations. Requests without the header fall back to ip.
+  mode: ip
+  userHeader: X-Forwarded-Email
+  groupsHeader: X-Forwarded-Groups
+  # Single sign-on administrators (header mode only), alongside certificates.
+  adminUsers: []
+  adminGroups: []
+
+slack:
+  enabled: false
+  signingSecret:
+    existingSecret: ""
+    key: slack-signing-secret
+
+# Additional environment variables for the container.
+extraEnv: []
+
+database:
+  # Option A (default): a PostgreSQL cluster managed by the CloudNativePG
+  # operator, which must already be installed in the cluster. The operator
+  # generates the credentials Secret "<release>-db-app"; nothing is stored in values.
+  cloudnativepg:
+    enabled: true
+    instances: 2
+    imageName: ghcr.io/cloudnative-pg/postgresql:18
+    database: turnbacks
+    owner: turnbacks
+    storage:
+      size: 10Gi
+      storageClass: ""
+    walStorage:
+      enabled: false
+      size: 5Gi
+      storageClass: ""
+    resources: {}
+    # Extra postgresql.conf parameters.
+    parameters: {}
+    enablePodMonitor: false
+    affinity: {}
+    # Passed through verbatim to Cluster .spec.backup and .spec.plugins, e.g. for
+    # the Barman Cloud plugin. See docs/kubernetes.md.
+    backup: {}
+    plugins: []
+    scheduledBackup:
+      enabled: false
+      # Six-field cron (seconds first), as used by CloudNativePG.
+      schedule: "0 0 2 * * *"
+      method: plugin
+      pluginConfiguration: {}
+  # Option B: an existing PostgreSQL. Set cloudnativepg.enabled=false and point
+  # to a Secret containing the connection URL.
+  external:
+    existingSecret: ""
+    key: uri
+  # libpq-style SSL mode applied to the connection (CloudNativePG serves TLS).
+  sslMode: require
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Defaults to the host of publicURL.
+  host: ""
+  tls:
+    enabled: true
+    secretName: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+startupProbe:
+  periodSeconds: 5
+  failureThreshold: 36 # 3 minutes: covers dbWait and migrations
+livenessProbe:
+  periodSeconds: 15
+  failureThreshold: 3
+readinessProbe:
+  periodSeconds: 5
+  failureThreshold: 3
+
+terminationGracePeriodSeconds: 30
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: false
+  # Who may reach the app (typically the ingress controller). Apart from DNS
+  # and PostgreSQL, the app only calls outbound webhook URLs.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # Extra egress rules for outbound webhooks (chat servers, your services).
+  # With the policy enabled and this empty, webhook deliveries are blocked.
+  #   - to: [{ ipBlock: { cidr: 10.20.0.0/16 } }]
+  #     ports: [{ port: 443, protocol: TCP }]
+  webhookEgress: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

@@ -1,0 +1,41 @@
+# Build output
+/bin/
+# The built frontend is embedded into the Go binary; keep the directory so
+# `go build` works before the first frontend build.
+/web/dist/*
+!/web/dist/.gitkeep
+
+# Dependencies and caches
+node_modules/
+*.tsbuildinfo
+.eslintcache
+
+# Test output
+/web/test-results/
+/web/playwright-report/
+/web/blob-report/
+coverage/
+*.test
+*.out
+
+# Local configuration
+.env
+.env.*
+!.env.example
+go.work
+go.work.sum
+
+# Admin client-certificate CA material: never commit private keys or bundles
+/ca/
+*.p12
+*.key
+*.pem
+
+# Editors and operating systems
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

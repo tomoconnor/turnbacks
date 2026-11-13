@@ -1,0 +1,38 @@
+Turnbacks {{ .Chart.AppVersion }} is deploying as "{{ include "turnbacks.fullname" . }}".
+
+{{- if .Values.database.cloudnativepg.enabled }}
+
+Database: CloudNativePG cluster "{{ include "turnbacks.dbClusterName" . }}" ({{ .Values.database.cloudnativepg.instances }} instance(s)).
+  kubectl -n {{ .Release.Namespace }} get cluster {{ include "turnbacks.dbClusterName" . }}
+  The cluster is annotated to survive "helm uninstall"; delete it explicitly if you really mean to.
+{{- end }}
+
+There are no user accounts: keep Turnbacks on your internal network / VPN.
+{{- if .Values.admin.clientCA.existingSecret }}
+Administration: client certificates from the CA in Secret "{{ .Values.admin.clientCA.existingSecret }}"
+{{- if .Values.admin.names }} (names: {{ join ", " .Values.admin.names }}){{ end }}.
+{{- if not .Values.admin.ingressNginx }}
+  admin.ingressNginx=false: your ingress must verify client certificates and always set the
+  "{{ .Values.admin.certHeader }}" header itself, or nobody (or anybody) can administer.
+{{- end }}
+{{- end }}
+{{- if and (eq .Values.identity.mode "header") (or .Values.identity.adminUsers .Values.identity.adminGroups) }}
+Administration (single sign-on):
+{{- with .Values.identity.adminUsers }} users {{ join ", " . }};{{ end }}
+{{- with .Values.identity.adminGroups }} groups {{ join ", " . }}{{ end }}.
+{{- else if not .Values.admin.clientCA.existingSecret }}
+Administration is DISABLED (set admin.clientCA.existingSecret, or identity.adminGroups with identity.mode=header).
+{{- end }}
+{{- if eq .Values.identity.mode "header" }}
+Reports are attributed to the single sign-on user in "{{ .Values.identity.userHeader }}" (falling back to the client
+address). Your ingress must authenticate users and always overwrite that header; trusted proxies: {{ .Values.config.trustedProxies }}
+{{- else }}
+Reports are attributed to client addresses; trusted proxies: {{ .Values.config.trustedProxies }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.webhookEgress) }}
+NetworkPolicy: outbound webhooks are blocked until you add networkPolicy.webhookEgress rules.
+{{- end }}
+
+Check readiness:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "turnbacks.fullname" . }}
+  helm -n {{ .Release.Namespace }} test {{ .Release.Name }}

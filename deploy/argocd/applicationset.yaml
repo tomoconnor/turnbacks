@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Tom O'Connor <tom@twinhelix.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# One Turnbacks Application per environment. Each uses the chart in this
+# repository plus deploy/environments/<env>/values.yaml.
+# Replace YOUR-ORG (repoURL below and in project.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: turnbacks
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - env: staging
+            revision: main
+            autoSync: true
+          - env: production
+            # Pin production to a release tag; promote by changing it.
+            revision: main
+            autoSync: false
+  template:
+    metadata:
+      name: "turnbacks-{{ .env }}"
+      labels:
+        app.kubernetes.io/part-of: turnbacks
+        environment: "{{ .env }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: turnbacks
+      sources:
+        - repoURL: https://github.com/YOUR-ORG/turnbacks.git
+          targetRevision: "{{ .revision }}"
+          path: deploy/helm/turnbacks
+          helm:
+            releaseName: turnbacks
+            valueFiles:
+              - "$values/deploy/environments/{{ .env }}/values.yaml"
+        - repoURL: https://github.com/YOUR-ORG/turnbacks.git
+          targetRevision: "{{ .revision }}"
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "turnbacks-{{ .env }}"
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff: { duration: 10s, factor: 2, maxDuration: 3m }
+  templatePatch: |
+    {{- if .autoSync }}
+    spec:
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+    {{- end }}

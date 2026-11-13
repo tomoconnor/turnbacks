@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Tom O'Connor <tom@twinhelix.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Production values (used by deploy/argocd/applicationset.yaml).
+image:
+  repository: ghcr.io/YOUR-ORG/turnbacks
+  tag: "1.0.0" # immutable release tag (or set image.digest)
+
+replicaCount: 2
+publicURL: https://turnbacks.example.com
+
+
+config:
+  # Ingress controller pod network; reports are attributed to the client
+  # (VPN) address passed through by the ingress.
+  trustedProxies: "10.42.0.0/16"
+
+admin:
+  clientCA:
+    existingSecret: turnbacks-admin-ca # ca.crt only; see docs/admin-certificates.md
+
+database:
+  cloudnativepg:
+    instances: 3
+    storage:
+      size: 20Gi
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { memory: 1Gi }
+    # Continuous backup with the Barman Cloud plugin (install the plugin and
+    # create the ObjectStore "turnbacks-backups" first; see docs/kubernetes.md).
+    plugins:
+      - name: barman-cloud.cloudnative-pg.io
+        isWALArchiver: true
+        parameters:
+          barmanObjectName: turnbacks-backups
+    scheduledBackup:
+      enabled: true
+      method: plugin
+      pluginConfiguration:
+        name: barman-cloud.cloudnative-pg.io
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+
+networkPolicy:
+  enabled: true
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6

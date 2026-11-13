@@ -1,0 +1,49 @@
+# Caddy in front of Turnbacks (compose.prod.yaml).
+#
+# - Terminates TLS for everyone. TURNBACKS_TLS chooses the server certificate:
+#     internal                        Caddy's own local CA (default; internal names)
+#     you@example.com                 a public certificate via ACME (Let's Encrypt/ZeroSSL)
+#     /certs/tls.crt /certs/tls.key   your own certificate files (mount them)
+# - Asks browsers for an admin client certificate but does not require one, so
+#   recording and dashboards need nothing. Browsers only offer certificates
+#   issued by the admin CA, so people without one never see a prompt. A
+#   certificate that is presented must verify against the admin CA.
+# - Forwards the verified certificate to Turnbacks in X-Client-Cert (base64
+#   DER), always replacing whatever the client sent. Turnbacks verifies it
+#   again, and believes the header only from a trusted proxy: here, whatever
+#   connects over the Unix socket shared through the app-socket volume.
+{
+	servers {
+		# Client certificates are unreliable over HTTP/3 in some browsers.
+		protocols h1 h2
+	}
+}
+
+{$TURNBACKS_HOST:localhost} {
+	tls {$TURNBACKS_TLS:internal} {
+		client_auth {
+			mode verify_if_given
+			trust_pool file /etc/caddy/admin-ca.crt
+		}
+	}
+
+	# Never pass on identity headers supplied by the client: only Caddy (or a
+	# single sign-on check below) may set them.
+	request_header -X-Client-Cert
+	request_header -X-Forwarded-Email
+	request_header -X-Forwarded-Groups
+
+	# Optional single sign-on (TURNBACKS_IDENTITY=header), e.g. oauth2-proxy.
+	# See docs/identity.md. Leave /api/v1/hooks/* outside it: inbound webhooks
+	# authenticate with their own tokens.
+	#
+	# @sso not path /api/v1/hooks/* /api/v1/integrations/*
+	# forward_auth @sso oauth2-proxy:4180 {
+	# 	uri /oauth2/auth
+	# 	copy_headers X-Auth-Request-Email>X-Forwarded-Email X-Auth-Request-Groups>X-Forwarded-Groups
+	# }
+
+	reverse_proxy {$TURNBACKS_UPSTREAM:unix//run/turnbacks/turnbacks.sock} {
+		header_up X-Client-Cert {http.request.tls.client.certificate_der_base64}
+	}
+}

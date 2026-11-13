@@ -1,0 +1,99 @@
+#compdef tb
+# zsh completion for tb (Turnbacks CLI)
+# Install:  tb completion zsh > "${fpath[1]}/_tb"   (then restart zsh)
+#     or:   eval "$(tb completion zsh)"             (in ~/.zshrc, after compinit)
+
+_tb_problems() {
+    local -a problems
+    local alias title
+    tb __complete problems 2>/dev/null | while IFS=$'\t' read -r alias title; do
+        problems+=("${alias}:${title}")
+    done
+    _describe -t problems 'problem alias' problems
+}
+
+_tb_teams() {
+    local -a teams
+    teams=("${(@f)$(tb __complete teams 2>/dev/null)}")
+    _wanted teams expl 'team' compadd -a teams
+}
+
+_tb_categories() {
+    local -a cats
+    cats=("${(@f)$(tb __complete categories 2>/dev/null)}")
+    _wanted categories expl 'category' compadd -a cats
+}
+
+_tb_record_args() {
+    _arguments -s \
+        '(-n --times)'{-n,--times}'[how many times it happened]:count:(2 3 5 10 15 20)' \
+        '--note[note]:note:' \
+        '(--at)--ago[how long ago]:duration:(15m 30m 1h 2h)' \
+        '(--ago)--at[time it happened (HH:MM or RFC 3339)]:time:' \
+        '--team[your team]:team:_tb_teams' \
+        '--exact[the duration is exact, not an estimate]' \
+        '(-y --yes)'{-y,--yes}'[confirm unusually large entries]' \
+        "1:problem:_tb_problems" \
+        '2:minutes:(1 5 10 15 30 60)' \
+        '*:note words:'
+}
+
+_tb() {
+    local -a commands
+    commands=(
+        'record:record a turnback'
+        'again:repeat your last report'
+        'undo:undo your last report (within 15 minutes)'
+        'problems:list problems and aliases'
+        'new:add a problem'
+        'stats:headline numbers and top problems'
+        'teams:list teams'
+        'sync:send reports queued while offline'
+        'config:show or change settings'
+        'completion:print a shell completion script'
+        'version:print the version'
+        'help:show help'
+    )
+
+    if (( CURRENT == 2 )); then
+        _alternative \
+            'commands:command:_describe -t commands command commands' \
+            'problems:problem alias:_tb_problems'
+        return
+    fi
+
+    local cmd=${words[2]}
+    case $cmd in
+        record)
+            shift words; (( CURRENT-- ))
+            _tb_record_args ;;
+        again)
+            shift words; (( CURRENT-- ))
+            _arguments '(-n --times)'{-n,--times}'[how many times]:count:' '(-y --yes)'{-y,--yes}'[confirm]' ;;
+        stats)
+            shift words; (( CURRENT-- ))
+            _arguments '--period[reporting period]:period:(7d 30d 90d year)' ;;
+        new)
+            shift words; (( CURRENT-- ))
+            _arguments '--alias[short alias]:alias:' '--category[category]:category:_tb_categories' '*:title:' ;;
+        completion)
+            shift words; (( CURRENT-- ))
+            _arguments '1:shell:(bash zsh)' ;;
+        config)
+            case $CURRENT in
+                3) compadd show set unset ;;
+                4) if [[ ${words[3]} == unset ]]; then compadd team; else compadd url team; fi ;;
+                *) [[ ${words[4]} == team ]] && _tb_teams ;;
+            esac ;;
+        undo|problems|teams|sync|version|help) ;;
+        *)
+            # "tb <alias> <minutes> …" shorthand: complete as for record.
+            _tb_record_args ;;
+    esac
+}
+
+if [[ $zsh_eval_context[-1] == loadautofunc ]]; then
+    _tb "$@"
+else
+    compdef _tb tb
+fi

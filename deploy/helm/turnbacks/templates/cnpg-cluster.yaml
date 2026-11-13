@@ -1,0 +1,85 @@
+# Copyright (c) 2026 Tom O'Connor <tom@twinhelix.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+{{- with .Values.database.cloudnativepg }}
+{{- if .enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "turnbacks.dbClusterName" $ }}
+  labels:
+    {{- include "turnbacks.labels" $ | nindent 4 }}
+  annotations:
+    # Create the database before the application (Argo CD sync waves).
+    argocd.argoproj.io/sync-wave: "-1"
+    # Never let a sync or uninstall delete the database by accident.
+    argocd.argoproj.io/sync-options: Delete=false
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ .instances }}
+  imageName: {{ .imageName }}
+  primaryUpdateStrategy: unsupervised
+  bootstrap:
+    initdb:
+      database: {{ .database }}
+      owner: {{ .owner }}
+  storage:
+    size: {{ .storage.size }}
+    {{- with .storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  {{- if .walStorage.enabled }}
+  walStorage:
+    size: {{ .walStorage.size }}
+    {{- with .walStorage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- with .resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .parameters }}
+  postgresql:
+    parameters:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  {{- if .affinity }}
+  affinity:
+    {{- toYaml .affinity | nindent 4 }}
+  {{- else }}
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+  {{- end }}
+  {{- if .enablePodMonitor }}
+  monitoring:
+    enablePodMonitor: true
+  {{- end }}
+  {{- with .backup }}
+  backup:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .plugins }}
+  plugins:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

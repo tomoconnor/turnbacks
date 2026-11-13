@@ -1,0 +1,1561 @@
+# Copyright (c) 2026 Tom O'Connor <tom@twinhelix.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+openapi: 3.1.0
+info:
+  title: Turnbacks API
+  version: 1.0.0
+  summary: Record and quantify recurring operational friction.
+  description: |
+    The Turnbacks REST API. All endpoints are under `/api/v1` and exchange JSON.
+
+    **Access.** There are no user accounts: anyone who can reach the server may record and
+    read reports. Each request's reporter is recorded to count distinct people affected and
+    shown to administrators only. By default the reporter is the client address
+    (`ip:…`); with `TURNBACKS_IDENTITY=header` it is the user named by a single sign-on proxy
+    header (`user:…`), falling back to the address. Administration (settings, teams,
+    categories, editing/merging problems, remediations, corrections, webhooks and the audit
+    views) requires a TLS client certificate issued by the Turnbacks admin CA or, with single
+    sign-on, membership of an admin group or user list. There is no sign-in endpoint.
+    State-changing requests must be same-origin and send `Content-Type: application/json`,
+    except inbound webhooks (`/hooks/{id}`), which authenticate with their own credentials.
+    Administrators' state-changing requests, and their reads of reporter data, are recorded
+    in the audit log.
+
+    **Money** is always an integer number of minor currency units (`*_minor`, e.g. pence).
+    The organisation's currency and its minor-unit exponent are in `GET /settings`.
+    **Percentages** in analytics are basis points (`*_bp`, 1/100 of a percent).
+    **Dates** are `YYYY-MM-DD` calendar dates in the organisation reporting timezone;
+    timestamps are RFC 3339 in UTC.
+
+    **Errors** use a consistent envelope (`Error`) with a stable machine-readable `code`.
+    Every response carries an `X-Request-ID` header for correlation.
+
+    **Privacy.** The reporter (address, single sign-on user or chat user) is only returned to
+    administrators, and is never included in outbound webhook payloads.
+servers:
+  - url: /api/v1
+tags:
+  - name: admin
+  - name: settings
+  - name: teams
+  - name: categories
+  - name: problems
+  - name: turnbacks
+  - name: analytics
+  - name: remediations
+  - name: changes
+  - name: exports
+  - name: webhooks
+  - name: audit
+  - name: integrations
+security: []
+
+paths:
+  /session:
+    get:
+      tags: [admin]
+      operationId: getSession
+      summary: Whether administration is available and this request presented an admin client certificate
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/SessionInfo" } } } }
+  /settings:
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Organisation settings
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Settings" } } } }
+    put:
+      tags: [settings]
+      operationId: updateSettings
+      summary: Update organisation settings (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SettingsInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Settings" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /teams:
+    get:
+      tags: [teams]
+      operationId: listTeams
+      summary: List teams
+      parameters:
+        - { name: include_inactive, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Team" } } }
+    post:
+      tags: [teams]
+      operationId: createTeam
+      summary: Create a team (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TeamInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Team" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /teams/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [teams]
+      operationId: updateTeam
+      summary: Update a team (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TeamInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Team" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /categories:
+    get:
+      tags: [categories]
+      operationId: listCategories
+      summary: List categories
+      parameters:
+        - { name: include_inactive, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Category" } } }
+    post:
+      tags: [categories]
+      operationId: createCategory
+      summary: Create a category (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CategoryInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Category" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /categories/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [categories]
+      operationId: updateCategory
+      summary: Update a category (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CategoryInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Category" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /problems:
+    get:
+      tags: [problems]
+      operationId: listProblems
+      summary: Search problems
+      description: Merged problems are never listed. Results are ordered by alias match, title similarity, then recent frequency.
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - name: status
+          in: query
+          description: Comma-separated statuses (default `active,monitoring`)
+          schema: { type: string, examples: ["active,monitoring"] }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ProblemList" } } } }
+        "422": { $ref: "#/components/responses/Invalid" }
+    post:
+      tags: [problems]
+      operationId: createProblem
+      summary: Create a problem (anyone; no approval required)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProblemInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /problems/quick:
+    get:
+      tags: [problems]
+      operationId: quickProblems
+      summary: Frequently reported problems (last 30 days)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/QuickProblems" } } } }
+  /problems/similar:
+    get:
+      tags: [problems]
+      operationId: similarProblems
+      summary: Suggest existing problems with similar titles (duplicate prevention)
+      parameters:
+        - { name: title, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/SimilarProblem" } } }
+  /problems/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [problems]
+      operationId: getProblem
+      summary: Get a problem
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [problems]
+      operationId: updateProblem
+      summary: Update a problem, including status (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProblemInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /problems/{id}/merge:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [problems]
+      operationId: mergeProblem
+      summary: Merge this problem into another (admin)
+      description: Moves all turnbacks and remediations to the target. The source is archived and marked as merged; late submissions are redirected. No history is lost.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/MergeRequest" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/MergeResult" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /problems/{id}/business-case:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+      - { $ref: "#/components/parameters/Period" }
+      - { $ref: "#/components/parameters/From" }
+      - { $ref: "#/components/parameters/To" }
+      - { $ref: "#/components/parameters/ImplementationCost" }
+      - { $ref: "#/components/parameters/AnnualCost" }
+      - { $ref: "#/components/parameters/ExpectedReduction" }
+      - { $ref: "#/components/parameters/Recoverable" }
+    get:
+      tags: [analytics]
+      operationId: getBusinessCase
+      summary: Business case for a problem
+      description: Without a period, the observation window runs from the first occurrence (at most 365 days back) to today. Unspecified assumptions default to the latest remediation record, then to built-in defaults.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BusinessCase" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /problems/{id}/business-case/export:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+      - { $ref: "#/components/parameters/Period" }
+      - { $ref: "#/components/parameters/From" }
+      - { $ref: "#/components/parameters/To" }
+      - { $ref: "#/components/parameters/ImplementationCost" }
+      - { $ref: "#/components/parameters/AnnualCost" }
+      - { $ref: "#/components/parameters/ExpectedReduction" }
+      - { $ref: "#/components/parameters/Recoverable" }
+    get:
+      tags: [analytics]
+      operationId: exportBusinessCase
+      summary: Business case as CSV
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /problems/{id}/remediations:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [remediations]
+      operationId: listRemediations
+      summary: Remediations recorded for a problem
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Remediation" } } }
+    post:
+      tags: [remediations]
+      operationId: createRemediation
+      summary: Record a remediation (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/RemediationInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Remediation" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /remediations/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [remediations]
+      operationId: updateRemediation
+      summary: Update a remediation (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/RemediationInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Remediation" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [remediations]
+      operationId: deleteRemediation
+      summary: Delete a remediation (admin)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /remediations/{id}/comparison:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+      - { $ref: "#/components/parameters/WindowDays" }
+    get:
+      tags: [remediations]
+      operationId: getRemediationComparison
+      summary: Before/after comparison over equal-length windows (observational)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Comparison" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /turnbacks:
+    post:
+      tags: [turnbacks]
+      operationId: submitTurnback
+      summary: Record a turnback (idempotent)
+      description: |
+        `id` is a client-generated UUID and acts as the idempotency key. Re-submitting
+        identical content with the same `id` returns `200` with `replayed: true` and the
+        original record; different content with an existing `id` returns `409`.
+        Durations above the organisation's `large_duration_minutes` require
+        `confirm_large_duration: true` (otherwise `422` with code `duration_confirmation_required`).
+        `quantity` (default 1) records that many identical occurrences — e.g. "10 minutes, 15 times
+        today". Each is an individual occurrence row; they share `batch_id` (equal to `id`), and the
+        others' IDs are derived deterministically from `id`, so retries remain idempotent. Quantities
+        above 20 also require `confirm_large_duration` (`quantity_confirmation_required`).
+        The response's `undo_token` lets the submitter delete the submission (with `?batch=true`
+        for a batch) for 15 minutes via `DELETE /turnbacks/{id}?undo_token=…`.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TurnbackInput" } } }
+      responses:
+        "201": { description: Recorded, content: { application/json: { schema: { $ref: "#/components/schemas/SubmitResult" } } } }
+        "200": { description: Idempotent replay, content: { application/json: { schema: { $ref: "#/components/schemas/SubmitResult" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    get:
+      tags: [turnbacks]
+      operationId: listTurnbacks
+      summary: List occurrences. The reporter is included, and filterable, for administrators only (audit view).
+      parameters:
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/ProblemFilter" }
+        - { $ref: "#/components/parameters/CategoryFilter" }
+        - { $ref: "#/components/parameters/TeamFilter" }
+        - { name: reporter, in: query, description: "Admin only: e.g. ip:10.8.0.12 or slack:T1/U1", schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/TurnbackList" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /turnbacks/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [turnbacks]
+      operationId: updateTurnback
+      summary: Correct a turnback (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TurnbackUpdate" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Turnback" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [turnbacks]
+      operationId: deleteTurnback
+      summary: Delete a turnback (admin, or the submitter's undo token within 15 minutes)
+      parameters:
+        - { name: batch, in: query, schema: { type: boolean }, description: Also delete every occurrence recorded together with it }
+        - { name: undo_token, in: query, schema: { type: string }, description: Token returned when the turnback was recorded }
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /analytics/summary:
+    get:
+      tags: [analytics]
+      operationId: analyticsSummary
+      summary: Headline metrics with the preceding equivalent period
+      parameters:
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/ProblemFilter" }
+        - { $ref: "#/components/parameters/CategoryFilter" }
+        - { $ref: "#/components/parameters/TeamFilter" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Summary" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /analytics/timeseries:
+    get:
+      tags: [analytics]
+      operationId: analyticsTimeseries
+      summary: Occurrences, time lost and estimated cost over time
+      parameters:
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/ProblemFilter" }
+        - { $ref: "#/components/parameters/CategoryFilter" }
+        - { $ref: "#/components/parameters/TeamFilter" }
+        - { name: bucket, in: query, schema: { type: string, enum: [day, week, month] }, description: Defaults by period length }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Timeseries" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /analytics/problems:
+    get:
+      tags: [analytics]
+      operationId: analyticsProblems
+      summary: Problems ranked by frequency, time lost or cost, with Pareto cumulative share
+      parameters:
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/CategoryFilter" }
+        - { $ref: "#/components/parameters/TeamFilter" }
+        - { name: sort, in: query, schema: { type: string, enum: [count, minutes, cost], default: cost } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ranking" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /analytics/categories:
+    get:
+      tags: [analytics]
+      operationId: analyticsCategories
+      summary: Breakdown by category
+      parameters:
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/TeamFilter" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CategoryBreakdown" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /analytics/teams:
+    get:
+      tags: [analytics]
+      operationId: analyticsTeams
+      summary: Breakdown by team with reporting participation
+      parameters:
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/CategoryFilter" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/TeamBreakdown" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /analytics/remediations:
+    get:
+      tags: [analytics]
+      operationId: analyticsRemediations
+      summary: Before/after comparisons for all recorded remediations
+      parameters:
+        - { $ref: "#/components/parameters/WindowDays" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Comparison" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /analytics/export:
+    get:
+      tags: [analytics]
+      operationId: analyticsExport
+      summary: CSV export. The occurrence export includes the reporter column for administrators only.
+      parameters:
+        - { name: dataset, in: query, required: true, schema: { type: string, enum: [problems, timeseries, categories, teams, turnbacks] } }
+        - { $ref: "#/components/parameters/Period" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/ProblemFilter" }
+        - { $ref: "#/components/parameters/CategoryFilter" }
+        - { $ref: "#/components/parameters/TeamFilter" }
+        - { name: sort, in: query, schema: { type: string, enum: [count, minutes, cost] } }
+        - { name: bucket, in: query, schema: { type: string, enum: [day, week, month] } }
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /analytics/changes:
+    get:
+      tags: [changes]
+      operationId: analyticsChanges
+      summary: Before/after comparisons for the 20 most recent change markers (observational)
+      parameters:
+        - { $ref: "#/components/parameters/ProblemFilter" }
+        - { name: window_days, in: query, schema: { type: integer, minimum: 1, maximum: 365, default: 28 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/MarkerComparison" } } }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /changes:
+    get:
+      tags: [changes]
+      operationId: listChanges
+      summary: Change markers, most recent first
+      parameters:
+        - { name: from, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: to, in: query, description: Exclusive, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: problem_id, in: query, description: "This problem's changes (plus organisation-wide ones unless include_global=false)", schema: { type: string, format: uuid } }
+        - { name: include_global, in: query, schema: { type: boolean, default: true } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/ChangeMarker" } } }
+        "422": { $ref: "#/components/responses/Invalid" }
+    post:
+      tags: [changes]
+      operationId: createChange
+      summary: Mark a change (anyone)
+      description: A point in time when something changed, for one problem or (without problem_id) for everything.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ChangeMarkerInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/ChangeMarker" } } } }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /changes/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [changes]
+      operationId: updateChange
+      summary: Update a change marker (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ChangeMarkerInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ChangeMarker" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [changes]
+      operationId: deleteChange
+      summary: Delete a change marker (admin)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /changes/{id}/comparison:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+      - { name: window_days, in: query, schema: { type: integer, minimum: 1, maximum: 365, default: 28 } }
+    get:
+      tags: [changes]
+      operationId: getChangeComparison
+      summary: Equal windows immediately before and after the change (observational)
+      description: Each window is window_days long, or as long as the time since the change if that is shorter.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/MarkerComparison" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /exports/{dataset}:
+    parameters:
+      - { name: dataset, in: path, required: true, schema: { type: string, enum: [turnbacks, problems, remediations, changes] } }
+    get:
+      tags: [exports]
+      operationId: fullExport
+      summary: Complete dataset as CSV (all time, unfiltered)
+      description: The reporter column (turnbacks) and created_by column (changes) are included for administrators only.
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /webhooks:
+    get:
+      tags: [webhooks]
+      operationId: listWebhooks
+      summary: Outbound webhooks (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, events, formats]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Webhook" } }
+                  events: { type: array, items: { $ref: "#/components/schemas/WebhookEvent" } }
+                  formats: { type: array, items: { $ref: "#/components/schemas/WebhookFormat" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [webhooks]
+      operationId: createWebhook
+      summary: Add an outbound webhook (admin); the response includes the signing secret, shown once
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/WebhookInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Webhook" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /webhooks/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [webhooks]
+      operationId: updateWebhook
+      summary: Update an outbound webhook (admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/WebhookInput" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Webhook" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [webhooks]
+      operationId: deleteWebhook
+      summary: Delete an outbound webhook and its delivery history (admin)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /webhooks/{id}/test:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [webhooks]
+      operationId: testWebhook
+      summary: Queue a test event for this webhook (admin)
+      responses:
+        "202": { description: Queued, content: { application/json: { schema: { $ref: "#/components/schemas/WebhookDelivery" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /webhooks/{id}/rotate-secret:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [webhooks]
+      operationId: rotateWebhookSecret
+      summary: Replace the signing secret (admin); the response includes the new secret
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Webhook" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /webhooks/{id}/deliveries:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [webhooks]
+      operationId: listWebhookDeliveries
+      summary: The 50 most recent deliveries (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/WebhookDelivery" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /inbound-hooks:
+    get:
+      tags: [webhooks]
+      operationId: listInboundHooks
+      summary: Inbound webhooks (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/InboundHook" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [webhooks]
+      operationId: createInboundHook
+      summary: Add an inbound webhook (admin); json hooks return their bearer token, shown once
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/InboundHookInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/InboundHook" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /inbound-hooks/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [webhooks]
+      operationId: updateInboundHook
+      summary: Rename, enable or disable an inbound webhook (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, enabled]
+              properties: { name: { type: string, minLength: 1, maxLength: 100 }, enabled: { type: boolean } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/InboundHook" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+    delete:
+      tags: [webhooks]
+      operationId: deleteInboundHook
+      summary: Delete an inbound webhook (admin)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /inbound-hooks/{id}/credential:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [webhooks]
+      operationId: replaceInboundCredential
+      summary: Issue a new token (json) or store a new secret from Mattermost or Teams (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: { secret: { type: string, description: The new Mattermost token or Teams security token; ignored for json hooks } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/InboundHook" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /audit:
+    get:
+      tags: [audit]
+      operationId: listAudit
+      summary: Admin audit log, newest first (admin)
+      parameters:
+        - { name: from, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: to, in: query, description: Exclusive, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: before_id, in: query, description: Return entries older than this one (paging), schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+                  total: { type: integer, description: Entries in the from/to range }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /audit/export:
+    get:
+      tags: [audit]
+      operationId: exportAudit
+      summary: Admin audit log as CSV (admin)
+      parameters:
+        - { name: from, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: to, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+  /integrations/slack/commands:
+    post:
+      tags: [integrations]
+      operationId: slackCommand
+      summary: Slack slash command endpoint (`/turnback vpn 10 disconnected again`)
+      description: |
+        Authenticated by Slack request signature (`X-Slack-Signature`, `X-Slack-Request-Timestamp`)
+        using the configured signing secret. Requests older than five minutes and replayed signatures
+        are rejected. Only enabled when `TURNBACKS_SLACK_SIGNING_SECRET` is set.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                team_id: { type: string }
+                user_id: { type: string }
+                command: { type: string }
+                text: { type: string }
+      responses:
+        "200":
+          description: Slack message
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response_type: { type: string }
+                  text: { type: string }
+        "401": { description: "Invalid, stale or replayed signature" }
+
+  /hooks/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [integrations]
+      operationId: receiveHook
+      summary: Inbound webhook endpoint
+      description: |
+        Authenticated by the hook's own credential, not by same-origin rules:
+
+        - **json**: `Authorization: Bearer <token>`. Records a turnback
+          (`{"problem": "vpn", "minutes": 10}`) or marks a change (`{"action": "change", "title": "…"}`).
+        - **mattermost**: a Mattermost slash command (form-encoded), with the token Mattermost
+          generated in the `token` field or `Authorization: Token …`. Replies with an ephemeral message.
+        - **teams**: a Microsoft Teams outgoing webhook, `Authorization: HMAC <base64>` keyed with
+          the security token Teams generated. Replies with a message.
+
+        Unknown, disabled and unauthenticated hooks all return 401.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/HookRequest" } }
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties: { token: { type: string }, team_id: { type: string }, user_id: { type: string }, command: { type: string }, text: { type: string } }
+      responses:
+        "200": { description: "Chat reply (mattermost, teams) or idempotent replay (json)", content: { application/json: { schema: { type: object } } } }
+        "201": { description: Recorded (json), content: { application/json: { schema: { type: object } } } }
+        "400": { description: Malformed request }
+        "401": { description: Unknown or disabled hook, or invalid credentials }
+        "413": { description: Body larger than 64 KiB }
+        "422": { $ref: "#/components/responses/Invalid" }
+
+components:
+  securitySchemes:
+    adminClientCertificate:
+      type: mutualTLS
+      description: >-
+        A client certificate from the Turnbacks admin CA, presented to the TLS-terminating proxy
+        and forwarded to the server. Required for administration endpoints only, unless the
+        server uses single sign-on administrators (TURNBACKS_ADMIN_GROUPS / TURNBACKS_ADMIN_USERS).
+
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+    Offset: { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+    Period:
+      name: period
+      in: query
+      schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, this_year, custom], default: last_30_days }
+    From: { name: from, in: query, description: "First day (custom period)", schema: { type: string, format: date } }
+    To: { name: to, in: query, description: "Last day, inclusive (custom period)", schema: { type: string, format: date } }
+    ProblemFilter: { name: problem_id, in: query, schema: { type: string, format: uuid } }
+    CategoryFilter: { name: category_id, in: query, schema: { type: string, format: uuid } }
+    TeamFilter: { name: team_id, in: query, schema: { type: string, format: uuid } }
+    WindowDays: { name: window_days, in: query, schema: { type: integer, minimum: 1, maximum: 365, default: 90 } }
+    ImplementationCost: { name: implementation_cost_minor, in: query, schema: { type: integer, minimum: 0 } }
+    AnnualCost: { name: annual_cost_minor, in: query, schema: { type: integer, minimum: 0 } }
+    ExpectedReduction: { name: expected_reduction_pct, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+    Recoverable: { name: recoverable_pct, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+
+  responses:
+    Invalid:
+      description: Validation failed (or confirmation required)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: Requires administration (admin_required), or the undo token is invalid or expired (undo_not_allowed)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: Conflict (duplicate alias/name, idempotency conflict, merged problem, last admin)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    SessionInfo:
+      type: object
+      required: [identity_mode, admin, admin_enabled, admin_methods, slack_enabled]
+      properties:
+        identity_mode: { type: string, enum: [ip, header], description: "How people are identified: network address, or a single sign-on proxy header" }
+        user: { type: string, description: The single sign-on user, when known }
+        admin: { type: boolean, description: This request comes from an administrator }
+        admin_name: { type: string, description: "The administrator's certificate common name or single sign-on user (admins only)" }
+        admin_via: { type: string, enum: [certificate, sso, dev], description: How administration was granted (admins only) }
+        admin_enabled: { type: boolean, description: Administration is possible at all }
+        admin_methods: { type: array, items: { type: string, enum: [certificate, sso] }, description: How administration can be granted }
+        slack_enabled: { type: boolean }
+    Uuid: { type: string, format: uuid }
+    NullableUuid: { type: [string, "null"], format: uuid }
+    Timestamp: { type: string, format: date-time }
+    NullableTimestamp: { type: [string, "null"], format: date-time }
+    Date: { type: string, format: date }
+    ProblemStatus: { type: string, enum: [active, monitoring, resolved, archived] }
+    Source: { type: string, enum: [web, pwa_offline, api, cli, slack, webhook, mattermost, teams] }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code, e.g. validation_failed, not_found, admin_required, undo_not_allowed, idempotency_conflict, duration_confirmation_required, quantity_confirmation_required, alias_taken, csrf_rejected
+            message: { type: string }
+            request_id: { type: string }
+            fields:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+
+    Settings:
+      type: object
+      required: [org_name, currency, currency_exponent, default_hourly_rate_minor, reporting_timezone, recoverable_pct, large_duration_minutes, note_retention_days, reporter_retention_days, updated_at]
+      properties:
+        org_name: { type: string }
+        currency: { type: string, pattern: "^[A-Z]{3}$" }
+        currency_exponent: { type: integer, description: Number of minor-unit digits }
+        default_hourly_rate_minor: { type: integer, description: Fully loaded hourly employment cost }
+        reporting_timezone: { type: string }
+        recoverable_pct: { type: integer, minimum: 0, maximum: 100, description: Assumed share of lost time that is recoverable capacity }
+        large_duration_minutes: { type: integer }
+        note_retention_days: { type: [integer, "null"] }
+        reporter_retention_days: { type: [integer, "null"] }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        demo_data_present: { type: boolean, description: True when seeded demonstration data exists (GET only) }
+    SettingsInput:
+      type: object
+      additionalProperties: false
+      required: [org_name, currency, default_hourly_rate_minor, reporting_timezone, recoverable_pct, large_duration_minutes, note_retention_days, reporter_retention_days]
+      properties:
+        org_name: { type: string, minLength: 1, maxLength: 200 }
+        currency: { type: string, pattern: "^[A-Z]{3}$" }
+        default_hourly_rate_minor: { type: integer, minimum: 0 }
+        reporting_timezone: { type: string }
+        recoverable_pct: { type: integer, minimum: 0, maximum: 100 }
+        large_duration_minutes: { type: integer, minimum: 1, maximum: 1440 }
+        note_retention_days: { type: [integer, "null"], minimum: 1 }
+        reporter_retention_days: { type: [integer, "null"], minimum: 1 }
+
+    Team:
+      type: object
+      required: [id, name, active, hourly_rate_minor, headcount, is_demo]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string }
+        active: { type: boolean }
+        hourly_rate_minor: { type: [integer, "null"] }
+        headcount: { type: [integer, "null"], description: Team size, for reporting participation }
+        is_demo: { type: boolean }
+    TeamInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        active: { type: boolean }
+        hourly_rate_minor: { type: [integer, "null"], minimum: 0 }
+        headcount: { type: [integer, "null"], minimum: 1 }
+    Category:
+      type: object
+      required: [id, name, description, active, sort_order]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string }
+        description: { type: string }
+        active: { type: boolean }
+        sort_order: { type: integer }
+    CategoryInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        active: { type: boolean }
+        sort_order: { type: integer }
+
+    Pagination:
+      type: object
+      required: [total, limit, offset]
+      properties:
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    Problem:
+      type: object
+      required: [id, title, description, category_id, category_name, status, alias, external_url, merged_into_id, created_at, updated_at, resolved_at, is_demo]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        title: { type: string }
+        description: { type: string }
+        category_id: { $ref: "#/components/schemas/Uuid" }
+        category_name: { type: string }
+        status: { $ref: "#/components/schemas/ProblemStatus" }
+        alias: { type: [string, "null"] }
+        external_url: { type: [string, "null"] }
+        merged_into_id: { $ref: "#/components/schemas/NullableUuid" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        resolved_at: { $ref: "#/components/schemas/NullableTimestamp" }
+        is_demo: { type: boolean }
+        recent_count: { type: integer, description: Occurrences in the last 30 days (list endpoint only) }
+        last_occurred_at: { $ref: "#/components/schemas/NullableTimestamp" }
+    ProblemList:
+      allOf:
+        - { $ref: "#/components/schemas/Pagination" }
+        - type: object
+          required: [items]
+          properties: { items: { type: array, items: { $ref: "#/components/schemas/Problem" } } }
+    ProblemInput:
+      type: object
+      additionalProperties: false
+      required: [title, category_id]
+      properties:
+        title: { type: string, minLength: 3, maxLength: 120 }
+        description: { type: string, maxLength: 4000 }
+        category_id: { $ref: "#/components/schemas/Uuid" }
+        status: { $ref: "#/components/schemas/ProblemStatus", description: Required for updates }
+        alias: { type: [string, "null"], pattern: "^[a-z0-9][a-z0-9-]{0,31}$" }
+        external_url: { type: [string, "null"], format: uri }
+    QuickProblem:
+      type: object
+      required: [id, title, alias, status, category_id, recent_count, last_occurred_at]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        title: { type: string }
+        alias: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/ProblemStatus" }
+        category_id: { $ref: "#/components/schemas/Uuid" }
+        recent_count: { type: integer }
+        last_occurred_at: { $ref: "#/components/schemas/NullableTimestamp" }
+    QuickProblems:
+      type: object
+      required: [frequent]
+      properties:
+        frequent: { type: array, items: { $ref: "#/components/schemas/QuickProblem" } }
+    SimilarProblem:
+      type: object
+      required: [id, title, alias, status, score]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        title: { type: string }
+        alias: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/ProblemStatus" }
+        score: { type: number }
+    MergeRequest:
+      type: object
+      additionalProperties: false
+      required: [target_id]
+      properties:
+        target_id: { $ref: "#/components/schemas/Uuid" }
+    MergeResult:
+      type: object
+      required: [target, moved_turnbacks, moved_remediations]
+      properties:
+        target: { $ref: "#/components/schemas/Problem" }
+        moved_turnbacks: { type: integer }
+        moved_remediations: { type: integer }
+
+    TurnbackInput:
+      type: object
+      additionalProperties: false
+      required: [id, problem_id, duration_minutes]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid", description: Client-generated UUID; idempotency key }
+        problem_id: { $ref: "#/components/schemas/Uuid" }
+        team_id: { $ref: "#/components/schemas/NullableUuid", description: Reporter's team (for team rates and breakdowns) }
+        duration_minutes: { type: integer, minimum: 1, maximum: 1440 }
+        duration_estimated: { type: boolean, default: true }
+        note: { type: [string, "null"], maxLength: 1000 }
+        occurred_at: { $ref: "#/components/schemas/Timestamp", description: Defaults to the server time. Offline submissions send the original time. }
+        source: { type: string, enum: [web, pwa_offline, api, cli], default: api }
+        confirm_large_duration: { type: boolean, default: false, description: Confirms unusually long durations or large quantities }
+        quantity: { type: integer, minimum: 1, maximum: 100, default: 1, description: Number of identical occurrences to record }
+    TurnbackUpdate:
+      type: object
+      additionalProperties: false
+      required: [problem_id, duration_minutes, duration_estimated, occurred_at]
+      properties:
+        problem_id: { $ref: "#/components/schemas/Uuid" }
+        duration_minutes: { type: integer, minimum: 1, maximum: 1440 }
+        duration_estimated: { type: boolean }
+        note: { type: [string, "null"], maxLength: 1000 }
+        occurred_at: { $ref: "#/components/schemas/Timestamp" }
+        confirm_large_duration: { type: boolean }
+    Turnback:
+      type: object
+      required: [id, problem_id, problem_title, team_id, duration_minutes, duration_estimated, note, occurred_at, submitted_at, source, is_demo, batch_id]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        problem_id: { $ref: "#/components/schemas/Uuid" }
+        problem_title: { type: string }
+        team_id: { $ref: "#/components/schemas/NullableUuid" }
+        duration_minutes: { type: integer }
+        duration_estimated: { type: boolean }
+        note: { type: [string, "null"] }
+        occurred_at: { $ref: "#/components/schemas/Timestamp" }
+        submitted_at: { $ref: "#/components/schemas/Timestamp" }
+        source: { $ref: "#/components/schemas/Source" }
+        is_demo: { type: boolean }
+        batch_id: { $ref: "#/components/schemas/NullableUuid", description: Shared by occurrences recorded together }
+        reporter: { type: string, description: "Admin only: ip:<address> or slack:<team>/<user>" }
+    TurnbackList:
+      allOf:
+        - { $ref: "#/components/schemas/Pagination" }
+        - type: object
+          required: [items]
+          properties: { items: { type: array, items: { $ref: "#/components/schemas/Turnback" } } }
+    SubmitResult:
+      type: object
+      required: [turnback, replayed, quantity]
+      properties:
+        turnback: { $ref: "#/components/schemas/Turnback", description: The first occurrence }
+        quantity: { type: integer, description: Number of occurrences recorded }
+        undo_token: { type: string, description: Lets the submitter undo this submission for 15 minutes (absent on replays) }
+        replayed: { type: boolean, description: True when this was an idempotent replay of an existing record }
+
+    Period:
+      type: object
+      required: [preset, from, to, start, end, days, timezone]
+      properties:
+        preset: { type: string }
+        from: { $ref: "#/components/schemas/Date" }
+        to: { $ref: "#/components/schemas/Date" }
+        start: { $ref: "#/components/schemas/Timestamp" }
+        end: { $ref: "#/components/schemas/Timestamp", description: Exclusive }
+        days: { type: integer }
+        timezone: { type: string }
+    Totals:
+      type: object
+      required: [turnbacks, minutes, cost_minor, distinct_reporters, unattributed_turnbacks, estimated_turnbacks, distinct_problems, avg_minutes]
+      properties:
+        turnbacks: { type: integer, description: Reported occurrences }
+        minutes: { type: integer, description: Reported minutes lost }
+        cost_minor: { type: integer, description: Estimated productivity cost (not cash expenditure) }
+        distinct_reporters: { type: integer, description: "People affected: distinct reporter addresses (one VPN address per person) and Slack users" }
+        unattributed_turnbacks: { type: integer, description: Reports with no reporter (unknown address or removed by retention) }
+        estimated_turnbacks: { type: integer, description: Occurrences whose duration was an estimate }
+        distinct_problems: { type: integer }
+        avg_minutes: { type: number, description: Mean minutes per occurrence (one decimal place) }
+    Change:
+      type: object
+      required: [turnbacks_bp, minutes_bp, cost_bp]
+      description: Relative change in basis points; null when the baseline is zero
+      properties:
+        turnbacks_bp: { type: [integer, "null"] }
+        minutes_bp: { type: [integer, "null"] }
+        cost_bp: { type: [integer, "null"] }
+    Summary:
+      type: object
+      required: [period, previous_period, current, previous, change]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        previous_period: { $ref: "#/components/schemas/Period" }
+        current: { $ref: "#/components/schemas/Totals" }
+        previous: { $ref: "#/components/schemas/Totals" }
+        change: { $ref: "#/components/schemas/Change" }
+    TimePoint:
+      type: object
+      required: [start, turnbacks, minutes, cost_minor]
+      properties:
+        start: { $ref: "#/components/schemas/Date" }
+        turnbacks: { type: integer }
+        minutes: { type: integer }
+        cost_minor: { type: integer }
+    Timeseries:
+      type: object
+      required: [period, bucket, points]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        bucket: { type: string, enum: [day, week, month] }
+        points: { type: array, items: { $ref: "#/components/schemas/TimePoint" } }
+    RankedProblem:
+      type: object
+      required: [problem_id, title, alias, status, category_name, turnbacks, minutes, cost_minor, distinct_reporters, share_bp, cumulative_share_bp]
+      properties:
+        problem_id: { $ref: "#/components/schemas/Uuid" }
+        title: { type: string }
+        alias: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/ProblemStatus" }
+        category_name: { type: string }
+        turnbacks: { type: integer }
+        minutes: { type: integer }
+        cost_minor: { type: integer }
+        distinct_reporters: { type: integer }
+        share_bp: { type: integer, description: Share of the period total for the sort metric }
+        cumulative_share_bp: { type: integer, description: Pareto cumulative share }
+    Ranking:
+      type: object
+      required: [period, sort, items, total, limit, offset]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        sort: { type: string, enum: [count, minutes, cost] }
+        items: { type: array, items: { $ref: "#/components/schemas/RankedProblem" } }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+    CategoryRow:
+      type: object
+      required: [category_id, name, turnbacks, minutes, cost_minor, distinct_problems]
+      properties:
+        category_id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string }
+        turnbacks: { type: integer }
+        minutes: { type: integer }
+        cost_minor: { type: integer }
+        distinct_problems: { type: integer }
+    CategoryBreakdown:
+      type: object
+      required: [period, items]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        items: { type: array, items: { $ref: "#/components/schemas/CategoryRow" } }
+    TeamRow:
+      type: object
+      required: [team_id, team_name, turnbacks, minutes, cost_minor, distinct_reporters, headcount, participation_bp]
+      properties:
+        team_id: { $ref: "#/components/schemas/NullableUuid" }
+        team_name: { type: [string, "null"], description: Null for reports without a team }
+        turnbacks: { type: integer }
+        minutes: { type: integer }
+        cost_minor: { type: integer }
+        distinct_reporters: { type: integer }
+        headcount: { type: [integer, "null"] }
+        participation_bp: { type: [integer, "null"], description: Distinct reporters ÷ headcount }
+    TeamBreakdown:
+      type: object
+      required: [period, items]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        items: { type: array, items: { $ref: "#/components/schemas/TeamRow" } }
+
+    Remediation:
+      type: object
+      required: [id, problem_id, implemented_on, description, implementation_cost_minor, annual_cost_minor, expected_reduction_pct, created_at, is_demo]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        problem_id: { $ref: "#/components/schemas/Uuid" }
+        implemented_on: { $ref: "#/components/schemas/Date" }
+        description: { type: string }
+        implementation_cost_minor: { type: integer, description: Actual or planned one-off expenditure }
+        annual_cost_minor: { type: integer, description: Ongoing annual expenditure }
+        expected_reduction_pct: { type: integer, minimum: 0, maximum: 100 }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        is_demo: { type: boolean }
+    RemediationInput:
+      type: object
+      additionalProperties: false
+      required: [implemented_on, description]
+      properties:
+        implemented_on: { $ref: "#/components/schemas/Date" }
+        description: { type: string, minLength: 1, maxLength: 4000 }
+        implementation_cost_minor: { type: integer, minimum: 0 }
+        annual_cost_minor: { type: integer, minimum: 0 }
+        expected_reduction_pct: { type: integer, minimum: 0, maximum: 100 }
+    WindowTotals:
+      type: object
+      required: [period, totals]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        totals: { $ref: "#/components/schemas/Totals" }
+    Comparison:
+      type: object
+      required: [remediation, problem_title, window_days, insufficient_data, before, after, change, caveat]
+      properties:
+        remediation: { $ref: "#/components/schemas/Remediation" }
+        problem_title: { type: string }
+        window_days: { type: integer }
+        insufficient_data: { type: boolean }
+        before: { $ref: "#/components/schemas/WindowTotals" }
+        after: { $ref: "#/components/schemas/WindowTotals" }
+        change: { $ref: "#/components/schemas/Change" }
+        caveat: { type: string }
+
+    Assumptions:
+      type: object
+      required: [implementation_cost_minor, annual_cost_minor, expected_reduction_pct, recoverable_pct, source]
+      properties:
+        implementation_cost_minor: { type: integer }
+        annual_cost_minor: { type: integer }
+        expected_reduction_pct: { type: integer }
+        recoverable_pct: { type: integer }
+        source: { type: string, enum: [custom, remediation, defaults] }
+    Projection:
+      type: object
+      required: [annualised_turnbacks, annualised_minutes, annualised_cost_minor, monthly_turnbacks, monthly_minutes, monthly_cost_minor, gross_annual_benefit_minor, net_annual_benefit_minor, first_year_net_minor, three_year_net_minor, payback_months]
+      properties:
+        annualised_turnbacks: { type: integer }
+        annualised_minutes: { type: integer }
+        annualised_cost_minor: { type: integer }
+        monthly_turnbacks: { type: integer }
+        monthly_minutes: { type: integer }
+        monthly_cost_minor: { type: integer }
+        gross_annual_benefit_minor: { type: integer }
+        net_annual_benefit_minor: { type: integer }
+        first_year_net_minor: { type: integer }
+        three_year_net_minor: { type: integer }
+        payback_months: { type: [number, "null"], description: Null when the net annual benefit is not positive }
+    Note:
+      type: object
+      required: [note, occurred_at, duration_minutes]
+      properties:
+        note: { type: string }
+        occurred_at: { $ref: "#/components/schemas/Timestamp" }
+        duration_minutes: { type: integer }
+    BusinessCase:
+      type: object
+      required: [problem, period, totals, assumptions, projection, trend, notes, remediations, org_name, currency, currency_exponent, default_hourly_rate_minor, generated_at, methodology]
+      properties:
+        problem: { $ref: "#/components/schemas/Problem" }
+        period: { $ref: "#/components/schemas/Period" }
+        totals: { $ref: "#/components/schemas/Totals" }
+        assumptions: { $ref: "#/components/schemas/Assumptions" }
+        projection: { $ref: "#/components/schemas/Projection" }
+        trend: { type: array, items: { $ref: "#/components/schemas/TimePoint" } }
+        notes: { type: array, items: { $ref: "#/components/schemas/Note" } }
+        remediations: { type: array, items: { $ref: "#/components/schemas/Comparison" } }
+        org_name: { type: string }
+        currency: { type: string }
+        currency_exponent: { type: integer }
+        default_hourly_rate_minor: { type: integer }
+        generated_at: { $ref: "#/components/schemas/Timestamp" }
+        methodology: { type: array, items: { type: string } }
+
+    ChangeMarker:
+      type: object
+      required: [id, occurred_at, title, description, url, problem_id, problem_title, source, created_at, is_demo]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        occurred_at: { $ref: "#/components/schemas/Timestamp" }
+        title: { type: string }
+        description: { type: string }
+        url: { type: [string, "null"] }
+        problem_id: { $ref: "#/components/schemas/NullableUuid" }
+        problem_title: { type: [string, "null"] }
+        source: { type: string, enum: [web, api, cli, webhook] }
+        created_by: { type: [string, "null"], description: Reporter key of whoever marked the change (admins only) }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        is_demo: { type: boolean }
+    ChangeMarkerInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        occurred_at: { $ref: "#/components/schemas/Timestamp", description: Defaults to now }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        url: { type: [string, "null"], description: "Link to the change (http or https)" }
+        problem_id: { $ref: "#/components/schemas/NullableUuid", description: Omit for an organisation-wide change }
+        source: { type: string, enum: [web, api, cli], description: "Ignored on update" }
+    TimeWindow:
+      type: object
+      required: [start, end, totals]
+      properties:
+        start: { $ref: "#/components/schemas/Timestamp" }
+        end: { $ref: "#/components/schemas/Timestamp", description: Exclusive }
+        totals: { $ref: "#/components/schemas/Totals" }
+    MarkerComparison:
+      type: object
+      required: [marker, window_seconds, requested_days, insufficient_data, before, after, change, caveat]
+      properties:
+        marker: { $ref: "#/components/schemas/ChangeMarker" }
+        window_seconds: { type: integer, description: Length of each window }
+        requested_days: { type: integer }
+        insufficient_data: { type: boolean, description: Windows shorter than 14 days }
+        before: { $ref: "#/components/schemas/TimeWindow" }
+        after: { $ref: "#/components/schemas/TimeWindow" }
+        change: { $ref: "#/components/schemas/Change" }
+        caveat: { type: string }
+
+    WebhookEvent: { type: string, enum: [turnback.recorded, problem.created, change.marked, remediation.recorded] }
+    WebhookFormat:
+      type: string
+      enum: [json, slack, markdown, teams]
+      description: "json: signed Turnbacks envelope; slack: Slack incoming webhook; markdown: Mattermost, Rocket.Chat and similar; teams: Microsoft Teams Workflows (Adaptive Card)"
+    Webhook:
+      type: object
+      required: [id, name, url, format, events, enabled, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string }
+        url: { type: string }
+        format: { $ref: "#/components/schemas/WebhookFormat" }
+        events: { type: array, items: { $ref: "#/components/schemas/WebhookEvent" } }
+        enabled: { type: boolean }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        secret: { type: string, description: HMAC signing secret; only when created or rotated }
+        last_delivery: { $ref: "#/components/schemas/WebhookDelivery" }
+    WebhookInput:
+      type: object
+      additionalProperties: false
+      required: [name, url, format, events]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        url: { type: string, maxLength: 2000 }
+        format: { $ref: "#/components/schemas/WebhookFormat" }
+        events: { type: array, minItems: 1, items: { $ref: "#/components/schemas/WebhookEvent" } }
+        enabled: { type: boolean, default: true }
+    WebhookDelivery:
+      type: object
+      required: [id, event, status, attempts, last_status_code, last_error, created_at, delivered_at]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        event: { type: string }
+        status: { type: string, enum: [pending, delivered, failed] }
+        attempts: { type: integer }
+        next_attempt_at: { $ref: "#/components/schemas/Timestamp", description: Pending deliveries only }
+        last_status_code: { type: [integer, "null"] }
+        last_error: { type: [string, "null"] }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        delivered_at: { $ref: "#/components/schemas/NullableTimestamp" }
+    InboundHook:
+      type: object
+      required: [id, name, kind, enabled, url, created_at, last_used_at]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string }
+        kind: { type: string, enum: [json, mattermost, teams] }
+        enabled: { type: boolean }
+        url: { type: string, description: The URL to give the other system }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        last_used_at: { $ref: "#/components/schemas/NullableTimestamp" }
+        token: { type: string, description: Bearer token (json hooks); only when created or replaced }
+    InboundHookInput:
+      type: object
+      additionalProperties: false
+      required: [name, kind]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, description: "For Teams, the outgoing webhook's name (users @mention it)" }
+        kind: { type: string, enum: [json, mattermost, teams] }
+        secret: { type: string, description: The token Mattermost or the security token Teams generated (not for json) }
+        enabled: { type: boolean, default: true }
+    HookRequest:
+      type: object
+      additionalProperties: false
+      description: Body of a json inbound webhook
+      properties:
+        action: { type: string, enum: [turnback, change], default: turnback }
+        problem: { type: string, description: Problem alias }
+        problem_id: { $ref: "#/components/schemas/Uuid" }
+        id: { $ref: "#/components/schemas/Uuid", description: "Idempotency key (turnback)" }
+        minutes: { type: integer, minimum: 1, maximum: 1440 }
+        quantity: { type: integer, minimum: 1, maximum: 100 }
+        note: { type: string, maxLength: 1000 }
+        reporter: { type: string, description: "Recorded as hook:<name>:<reporter>" }
+        occurred_at: { $ref: "#/components/schemas/Timestamp" }
+        confirm: { type: boolean, description: Confirms unusually large durations or quantities }
+        title: { type: string, description: "Change title (change)" }
+        description: { type: string }
+        url: { type: string }
+
+    AuditEntry:
+      type: object
+      required: [id, at, admin, via, method, action, target, status, client, request_id]
+      properties:
+        id: { type: integer }
+        at: { $ref: "#/components/schemas/Timestamp" }
+        admin: { type: string }
+        via: { type: string, enum: [certificate, sso, dev] }
+        method: { type: string }
+        action: { type: string, description: "Route, e.g. /api/v1/problems/{id}/merge" }
+        target: { type: string, description: Route parameters (and query, for reads) }
+        status: { type: integer }
+        client: { type: [string, "null"], description: "The administrator's reporter key" }
+        request_id: { type: [string, "null"] }
